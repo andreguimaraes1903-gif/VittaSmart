@@ -23,7 +23,8 @@ describe('interpretarPaciente', () => {
   });
   it('descarta falecidos e excluídos', () => {
     expect(interpretarPaciente({ objectId: 'p3', name: 'X', deceased: 'true' })).toBeNull();
-    expect(interpretarPaciente({ objectId: 'p4', name: 'X', deceased: 'Sim' })).toBeNull();
+    expect(interpretarPaciente({ objectId: 'p4', name: 'X', deceased: '1' })).toBeNull();
+    expect(interpretarPaciente({ objectId: 'p6', name: 'X', deceased: '0' })).not.toBeNull();
     expect(interpretarPaciente({ objectId: 'p5', name: 'X', isDeleted: true })).toBeNull();
   });
 });
@@ -36,33 +37,40 @@ describe('interpretarTutor', () => {
 });
 
 describe('vacinas', () => {
-  it('acha o campo de próxima dose pelo nome', () => {
-    expect(campoProximaDose({ applicationDate: data('2026-01-10T03:00:00Z'), nextApplicationDate: data('2027-01-10T03:00:00Z') })).toBe('2027-01-10');
-    expect(campoProximaDose({ revaccinationDate: '10/01/2027' })).toBe('2027-01-10');
-    expect(campoProximaDose({ applicationDate: data('2026-01-10T03:00:00Z') })).toBeNull();
+  const hoje = '2026-10-28';
+  const v = (id: string, nome: string, dia: string, extra: Record<string, unknown> = {}): ObjetoParse => ({
+    objectId: id,
+    patient: { __type: 'Pointer', className: 'Patient', objectId: 'p1' },
+    patientId: 'p1',
+    vaccine: nome,
+    vaccineType: 'polivalente',
+    documentDate: data(`${dia}T03:00:00Z`),
+    ...extra,
   });
-  it('fica só com a dose mais recente de cada vacina do paciente', () => {
-    const v = (id: string, nome: string, aplicada: string, proxima?: string): ObjetoParse => ({
-      objectId: id,
-      patient: { __type: 'Pointer', className: 'Patient', objectId: 'p1' },
-      name: nome,
-      applicationDate: data(`${aplicada}T03:00:00Z`),
-      ...(proxima ? { nextApplicationDate: data(`${proxima}T03:00:00Z`) } : {}),
-    });
-    const lista = interpretarVacinas([
-      v('a', 'V10', '2025-01-01', '2026-01-01'), // já cumprida pela dose seguinte
-      v('b', 'V10', '2026-01-01', '2027-01-01'),
-      v('c', 'Antirrábica', '2026-02-01', '2027-02-01'),
-      v('d', 'Giárdia', '2026-03-01'), // sem próxima dose
-    ]);
+
+  it('dose com data a partir de hoje é a próxima dose', () => {
+    const lista = interpretarVacinas(
+      [
+        v('a', 'V10', '2025-10-30'), // aplicada
+        v('b', 'V10', '2026-11-02', { parentVaccine: { objectId: 'a' } }), // programada
+        v('c', 'V10', '2027-11-02'), // programada mais distante
+        v('d', 'Antirrábica', '2026-10-28'), // hoje
+        v('e', 'Giárdia', '2026-03-01'), // passado
+      ],
+      hoje,
+    );
     expect(lista).toEqual([
-      { id: 'b', pacienteId: 'p1', nome: 'V10', proximaDose: '2027-01-01' },
-      { id: 'c', pacienteId: 'p1', nome: 'Antirrábica', proximaDose: '2027-02-01' },
+      { id: 'b', pacienteId: 'p1', nome: 'V10', proximaDose: '2026-11-02' },
+      { id: 'd', pacienteId: 'p1', nome: 'Antirrábica', proximaDose: '2026-10-28' },
     ]);
   });
-  it('lê o nome dentro de ponteiro incluído', () => {
-    const [x] = interpretarVacinas([{ objectId: 'e', patientId: 'p9', vaccine: { name: 'V4 felina' }, nextDate: data('2027-05-05T03:00:00Z') }]);
-    expect(x).toMatchObject({ nome: 'V4 felina', pacienteId: 'p9' });
+  it('respeita ignoreReminder e isDeleted', () => {
+    expect(interpretarVacinas([v('a', 'V10', '2026-11-02', { ignoreReminder: true }), v('b', 'V8', '2026-11-02', { isDeleted: true })], hoje)).toEqual([]);
+  });
+  it('usa o tipo quando falta o nome e aceita campo explícito de próxima dose', () => {
+    const [x] = interpretarVacinas([{ objectId: 'f', patientId: 'p9', vaccineType: 'V4 felina', nextDate: data('2027-05-05T03:00:00Z') }], hoje);
+    expect(x).toMatchObject({ nome: 'V4 felina', pacienteId: 'p9', proximaDose: '2027-05-05' });
+    expect(campoProximaDose({ documentDate: data('2026-01-10T03:00:00Z') })).toBeNull();
   });
   it('dataParse aceita formatos variados', () => {
     expect(dataParse(data('2020-03-05T00:00:00.000Z'))).toBe('2020-03-05');

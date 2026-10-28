@@ -1,4 +1,5 @@
 import type { DadosSincronizados } from '../tipos';
+import { hojeCivil } from '../regras/datas';
 import { interpretarPaciente, interpretarTutor, interpretarVacinas, type ObjetoParse } from './parse';
 import { ORIGEM_PEDIR_SESSAO, ORIGEM_SESSAO, type SessaoParse } from './sessao';
 
@@ -102,6 +103,11 @@ export async function sincronizarVetSmart(progresso: Progresso): Promise<DadosSi
   const pacientes = (
     await listarTudo(s, 'Patient', 'Pacientes', progresso, { keys: 'name,specie,birthdate,birthday,owner,ownerId,deceased,isDeleted' })
   ).flatMap((o) => interpretarPaciente(o) ?? []);
-  const vacinas = interpretarVacinas(await listarTudo(s, 'Vaccine', 'Vacinas', progresso, { include: s.incluirVacina }));
+  const vacinas = interpretarVacinas(
+    await listarTudo(s, 'Vaccine', 'Vacinas', progresso, {
+      keys: 'patient,patientId,vaccine,vaccineType,documentDate,parentVaccine,ignoreReminder,isDeleted',
+    }),
+    hojeCivil(),
+  );
   return { tutores, pacientes, vacinas };
 }

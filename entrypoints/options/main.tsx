@@ -84,10 +84,6 @@ function Opcoes() {
           {numero('diasAntecedencia', 0, 60)}
         </div>
         <div>
-          <label>Mostrar vacinas atrasadas até (dias)</label>
-          {numero('diasAtrasoVacina', 0, 365)}
-        </div>
-        <div>
           <label>Hora do resumo diário</label>
           {numero('horaNotificacao', 0, 23)}
         </div>

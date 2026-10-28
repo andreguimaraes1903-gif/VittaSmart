@@ -23,10 +23,10 @@ describe('extrairEstrutura', () => {
             campos: {
               objectId: { tipo: 'texto', formato: 'id?' },
               nome: { tipo: 'texto', mascaras: ['aaaa', 'aaa'] },
-              nascimento: { tipo: 'texto', formato: 'data' },
+              nascimento: { tipo: 'texto', formato: 'data', passado: 1 },
               telefone: { tipo: 'texto', formato: 'telefone?' },
               peso: { tipo: 'numero' },
-              castrado: { tipo: 'booleano' },
+              castrado: { tipo: 'booleano', verdadeiro: 1 },
               email: { tipo: 'texto', formato: 'email?' },
             },
           },
@@ -37,10 +37,23 @@ describe('extrairEstrutura', () => {
 });
 
 describe('privacidade extra', () => {
-  it('mascara textos curtos e esconde ids em chaves de ACL', () => {
-    const e = extrairEstrutura({ birthday: '05/03', deceased: 'false', ACL: { 'role:Clinic_Pj17tDafNx': { read: true } } });
+  it('mascara textos curtos, esconde a ACL e mantém nomes de campos', () => {
+    const e = extrairEstrutura({ birthday: '05/03', deceased: 'false', createdApp: 'web', ACL: { 'role:Clinic_Pj17tDafNx': { read: true } } });
     expect(JSON.stringify(e)).not.toContain('Pj17tDafNx');
-    expect(e).toMatchObject({ campos: { birthday: { mascaras: ['99/99'] }, deceased: { mascaras: ['aaaaa'] }, ACL: { campos: { 'role:…': {} } } } });
+    expect(e).toMatchObject({ campos: { birthday: { mascaras: ['99/99'] }, deceased: { mascaras: ['aaaaa'] }, createdApp: { tipo: 'texto' }, ACL: { tipo: 'truncado' } } });
+  });
+  it('conta booleanos e datas passadas/futuras', () => {
+    const agora = Date.parse('2026-10-28T12:00:00Z');
+    const e = extrairEstrutura(
+      [
+        { aplicada: true, data: '2026-01-01T03:00:00Z' },
+        { aplicada: false, data: '2027-01-01T03:00:00Z' },
+        { aplicada: false, data: '2027-02-01T03:00:00Z' },
+      ],
+      0,
+      agora,
+    );
+    expect(e).toMatchObject({ item: { campos: { aplicada: { verdadeiro: 1, falso: 2 }, data: { passado: 1, futuro: 2 } } } });
   });
   it('mantém include/keys do corpo (são nomes de campos)', () => {
     const e = estruturaDoCorpo(JSON.stringify({ where: { name: 'Thor' }, include: 'vaccine,patient', _SessionToken: 'r:segredo' }));
@@ -59,5 +72,6 @@ describe('normalizarUrl', () => {
       'https://api.exemplo.com/pacientes/:id/vacinas?nome=…&page=…',
     );
     expect(normalizarUrl('/classes/Patient/aB3dE5fG7h')).toBe('https://prontuario.vetsmart.com.br/classes/Patient/:id');
+    expect(normalizarUrl('https://parse.vetsmart.com.br/parse/classes/ClinicUser')).toBe('https://parse.vetsmart.com.br/parse/classes/ClinicUser');
   });
 });

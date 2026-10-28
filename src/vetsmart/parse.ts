@@ -5,7 +5,7 @@
  * Campos confirmados pelo diagnóstico:
  * - Patient: objectId, name, specie, birthdate {__type:'Date', iso}, birthday, owner/ownerId, deceased, isDeleted
  * - Owner: objectId, name, phone, isDeleted
- * - Vaccine: ainda sem amostra; os campos são deduzidos por heurística (ver interpretarVacinas).
+ * - Vaccine: objectId, patient/patientId, vaccine (nome), vaccineType, documentDate, parentVaccine, ignoreReminder, isDeleted
  */
 import type { DataCivil, Paciente, Tutor, Vacina } from '../tipos';
 import { paraDataCivil } from '../regras/datas';
@@ -51,26 +51,22 @@ export function interpretarTutor(o: ObjetoParse): Tutor | null {
   };
 }
 
-const RE_PROXIMA = /(next|revac|booster|due|return|proxim|reforc|reminder)/i;
-const RE_NOME = ['name', 'vaccineName', 'nome', 'title', 'product', 'productName', 'description'];
+const RE_PROXIMA = /(next|revac|booster|due|proxim|reforc)/i;
 
 function nomeVacina(o: Record<string, unknown>): string | null {
-  for (const k of RE_NOME) {
+  for (const k of ['vaccine', 'vaccineName', 'name', 'nome', 'vaccineType']) {
     const v = o[k];
     if (texto(v)) return texto(v);
-  }
-  // Ponteiro incluído (ex.: include=vaccine) com nome dentro.
-  for (const k of ['vaccine', 'product', 'item', 'protocol']) {
-    const v = o[k];
+    // Ponteiro incluído com nome dentro.
     if (v && typeof v === 'object') {
-      const n = nomeVacina(v as Record<string, unknown>);
+      const n = texto((v as Record<string, unknown>).name);
       if (n) return n;
     }
   }
   return null;
 }
 
-/** Data da próxima dose: primeiro campo cujo nome indique "próxima/revacinação" e cujo valor seja data. */
+/** Campo explícito de "próxima dose", se existir (fallback para outros formatos). */
 export function campoProximaDose(o: Record<string, unknown>): DataCivil | null {
   for (const [k, v] of Object.entries(o)) {
     if (!RE_PROXIMA.test(k)) continue;
@@ -80,31 +76,26 @@ export function campoProximaDose(o: Record<string, unknown>): DataCivil | null {
   return null;
 }
 
-function dataAplicacao(o: Record<string, unknown>): string {
-  for (const k of ['applicationDate', 'appliedAt', 'documentDate', 'date']) {
-    const d = dataParse(o[k]);
-    if (d) return d;
-  }
-  return dataParse(o.createdAt) ?? '';
-}
-
 /**
- * Para cada paciente + vacina, vale só o registro aplicado mais recente
- * (uma dose antiga cujo "próxima dose" já foi cumprida não vira lembrete).
+ * Vacinas do VetSmart (classe Vaccine). Cada dose é um registro com
+ * `documentDate`; a dose programada aponta para a anterior em `parentVaccine`.
+ * Uma dose com data a partir de hoje é uma dose programada: vira lembrete.
+ * `ignoreReminder` = o próprio VetSmart foi instruído a não lembrar.
+ * Por paciente + vacina, fica só a próxima dose programada.
  */
-export function interpretarVacinas(objetos: ObjetoParse[]): Vacina[] {
-  const maisRecente = new Map<string, { aplicacao: string; vacina: Vacina | null }>();
+export function interpretarVacinas(objetos: ObjetoParse[], hoje: DataCivil): Vacina[] {
+  const proxima = new Map<string, Vacina>();
   for (const o of objetos) {
-    if (o.isDeleted === true) continue;
-    const pacienteId = idPonteiro(o.patient) ?? texto(o.patientId);
+    if (o.isDeleted === true || o.ignoreReminder === true) continue;
+    const pacienteId = texto(o.patientId) ?? idPonteiro(o.patient);
     if (!pacienteId) continue;
     const nome = nomeVacina(o) ?? 'Vacina';
+    const data = campoProximaDose(o) ?? dataParse(o.documentDate);
+    if (!data || data < hoje) continue;
     const chave = `${pacienteId}|${nome.toLocaleLowerCase('pt-BR')}`;
-    const aplicacao = dataAplicacao(o);
-    const atual = maisRecente.get(chave);
-    if (atual && atual.aplicacao > aplicacao) continue;
-    const proximaDose = campoProximaDose(o);
-    maisRecente.set(chave, { aplicacao, vacina: proximaDose ? { id: o.objectId, pacienteId, nome, proximaDose } : null });
+    const atual = proxima.get(chave);
+    if (atual && atual.proximaDose <= data) continue;
+    proxima.set(chave, { id: o.objectId, pacienteId, nome, proximaDose: data });
   }
-  return [...maisRecente.values()].flatMap((v) => (v.vacina ? [v.vacina] : []));
+  return [...proxima.values()];
 }
