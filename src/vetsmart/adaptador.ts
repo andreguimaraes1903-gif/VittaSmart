@@ -31,6 +31,7 @@ export function estadoSessao(): Record<string, unknown> {
     sessaoCapturada: !!sessaoAtual,
     servidor: sessaoAtual?.servidor,
     temClinica: !!sessaoAtual?.clinicId,
+    clinicClasse: sessaoAtual?.clinicClasse,
     temInstallationId: !!sessaoAtual?.installationId,
     clientVersion: sessaoAtual?.clientVersion,
   };
@@ -52,6 +53,41 @@ async function consultar(s: SessaoParse, classe: string, where: Record<string, u
   return pedir({ tipo: 'consultarParse', sessao: s, classe, where, op });
 }
 
+const espera = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const ehTempoEsgotado = (e: unknown) => e instanceof Error && /HTTP 50[234]|conectar ao servidor/.test(e.message);
+
+/**
+ * Uma página com nova tentativa: em 502/503/504 ou falha de rede espera e
+ * tenta de novo com a metade do tamanho (mínimo 50), até 3 vezes.
+ */
+async function consultarComRetentativa(
+  s: SessaoParse,
+  classe: string,
+  where: Record<string, unknown>,
+  op: OpcoesConsulta,
+  aoReduzir: (limit: number) => void,
+): Promise<ObjetoParse[]> {
+  let limit = op.limit ?? POR_PAGINA;
+  for (let tentativa = 0; ; tentativa++) {
+    try {
+      return await consultar(s, classe, where, { ...op, limit });
+    } catch (e) {
+      if (tentativa >= 3 || !ehTempoEsgotado(e)) throw e;
+      limit = Math.max(50, Math.floor(limit / 2));
+      aoReduzir(limit);
+      await espera(2000 * (tentativa + 1));
+    }
+  }
+}
+
+function filtroClinica(s: SessaoParse): Record<string, unknown> {
+  if (!s.clinicId) return {};
+  // Mesmo filtro que o VetSmart usa (ponteiro, provavelmente indexado); senão, o campo texto.
+  return s.clinicClasse
+    ? { clinic: { __type: 'Pointer', className: s.clinicClasse, objectId: s.clinicId } }
+    : { clinicId: s.clinicId };
+}
+
 /** Percorre a classe inteira em ordem de objectId (paginação por chave, sem limite de skip). */
 async function listarTudo(
   s: SessaoParse,
@@ -60,18 +96,43 @@ async function listarTudo(
   progresso: Progresso,
   op: OpcoesConsulta = {},
 ): Promise<ObjetoParse[]> {
-  const filtro: Record<string, unknown> = { isDeleted: false };
-  if (s.clinicId) filtro.clinicId = s.clinicId;
+  const filtro: Record<string, unknown> = { isDeleted: false, ...filtroClinica(s) };
   const todos: ObjetoParse[] = [];
   let ultimo: string | null = null;
+  let limit = op.limit ?? POR_PAGINA;
   for (;;) {
     const where: Record<string, unknown> = ultimo ? { ...filtro, objectId: { $gt: ultimo } } : filtro;
-    const pagina = await consultar(s, classe, where, op);
+    const pagina = await consultarComRetentativa(s, classe, where, { ...op, limit }, (l) => (limit = l));
     todos.push(...pagina);
     progresso(rotulo, todos.length);
-    if (pagina.length < POR_PAGINA) return todos;
+    if (pagina.length < limit) return todos;
     ultimo = pagina[pagina.length - 1]!.objectId;
-    await new Promise((r) => setTimeout(r, PAUSA_MS));
+    await espera(PAUSA_MS);
+  }
+}
+
+/**
+ * Só as doses com data a partir de ontem (as que podem virar lembrete),
+ * em ordem de data como o próprio VetSmart consulta. Muito mais leve que a
+ * classe inteira, que estourava o tempo do servidor (HTTP 504).
+ */
+async function listarVacinasFuturas(s: SessaoParse, progresso: Progresso): Promise<ObjetoParse[]> {
+  const desde = new Date();
+  desde.setDate(desde.getDate() - 1);
+  desde.setHours(0, 0, 0, 0);
+  const where = { isDeleted: false, ...filtroClinica(s), documentDate: { $gte: { __type: 'Date', iso: desde.toISOString() } } };
+  const op: OpcoesConsulta = {
+    keys: 'patient,patientId,vaccine,vaccineType,documentDate,parentVaccine,ignoreReminder,isDeleted',
+    order: 'documentDate,objectId',
+  };
+  const todos: ObjetoParse[] = [];
+  let limit = 200;
+  for (;;) {
+    const pagina = await consultarComRetentativa(s, 'Vaccine', where, { ...op, limit, skip: todos.length }, (l) => (limit = l));
+    todos.push(...pagina);
+    progresso('Vacinas', todos.length);
+    if (pagina.length < limit) return todos;
+    await espera(PAUSA_MS);
   }
 }
 
@@ -87,11 +148,6 @@ export async function sincronizarVetSmart(progresso: Progresso): Promise<DadosSi
   const pacientes = (
     await listarTudo(s, 'Patient', 'Pacientes', progresso, { keys: 'name,specie,birthdate,birthday,owner,ownerId,deceased,isDeleted' })
   ).flatMap((o) => interpretarPaciente(o) ?? []);
-  const vacinas = interpretarVacinas(
-    await listarTudo(s, 'Vaccine', 'Vacinas', progresso, {
-      keys: 'patient,patientId,vaccine,vaccineType,documentDate,parentVaccine,ignoreReminder,isDeleted',
-    }),
-    hojeCivil(),
-  );
+  const vacinas = interpretarVacinas(await listarVacinasFuturas(s, progresso), hojeCivil());
   return { tutores, pacientes, vacinas };
 }

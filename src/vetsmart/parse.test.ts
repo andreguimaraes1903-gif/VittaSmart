@@ -98,6 +98,7 @@ describe('sessaoDoCorpo', () => {
       installationId: 'inst',
       clientVersion: 'js1.0',
       clinicId: 'Pj17tDafNx',
+      clinicClasse: 'Clinic',
       incluirVacina: 'vaccine',
     });
   });

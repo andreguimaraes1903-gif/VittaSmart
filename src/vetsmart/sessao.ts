@@ -6,6 +6,8 @@ export interface SessaoParse {
   installationId?: string;
   clientVersion?: string;
   clinicId?: string;
+  /** className do ponteiro da clínica usado pelo VetSmart (ex.: "Clinic"). */
+  clinicClasse?: string;
   /** Valor de `include` que o VetSmart usa ao listar vacinas (ex.: "vaccine"). */
   incluirVacina?: string;
 }
@@ -21,7 +23,7 @@ export function sessaoDoCorpo(url: string, corpo: unknown): SessaoParse | null {
   try {
     const j = JSON.parse(corpo) as Record<string, unknown>;
     if (typeof j._ApplicationId !== 'string' || typeof j._SessionToken !== 'string') return null;
-    const where = j.where as { clinic?: { objectId?: unknown }; clinicId?: unknown } | undefined;
+    const where = j.where as { clinic?: { objectId?: unknown; className?: unknown }; clinicId?: unknown } | undefined;
     const clinica = where?.clinic?.objectId ?? where?.clinicId ?? j.clinicId;
     return {
       servidor: m[1]!,
@@ -30,6 +32,7 @@ export function sessaoDoCorpo(url: string, corpo: unknown): SessaoParse | null {
       installationId: typeof j._InstallationId === 'string' ? j._InstallationId : undefined,
       clientVersion: typeof j._ClientVersion === 'string' ? j._ClientVersion : undefined,
       clinicId: typeof clinica === 'string' ? clinica : undefined,
+      clinicClasse: typeof where?.clinic?.className === 'string' ? where.clinic.className : undefined,
       incluirVacina: url.endsWith('/classes/Vaccine') && typeof j.include === 'string' ? j.include : undefined,
     };
   } catch {

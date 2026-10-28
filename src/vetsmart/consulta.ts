@@ -7,6 +7,9 @@ export const POR_PAGINA = 1000;
 export interface OpcoesConsulta {
   keys?: string;
   include?: string;
+  limit?: number;
+  skip?: number;
+  order?: string;
 }
 
 /** Erro com detalhes técnicos seguros para o relatório. */
@@ -32,11 +35,14 @@ export async function consultarParse(
   fetchFn: typeof fetch = fetch,
 ): Promise<ObjetoParse[]> {
   const url = `${s.servidor}/classes/${classe}`;
-  const detalhes: Record<string, unknown> = { url, classe, filtro: formaDoFiltro(where), keys: op.keys, include: op.include };
+  const limit = op.limit ?? POR_PAGINA;
+  const order = op.order ?? 'objectId';
+  const detalhes: Record<string, unknown> = { url, classe, filtro: formaDoFiltro(where), keys: op.keys, include: op.include, limit, skip: op.skip, order };
   const corpo = {
     where,
-    limit: POR_PAGINA,
-    order: 'objectId',
+    limit,
+    order,
+    ...(op.skip ? { skip: op.skip } : {}),
     ...(op.keys ? { keys: op.keys } : {}),
     ...(op.include ? { include: op.include } : {}),
     _method: 'GET',
