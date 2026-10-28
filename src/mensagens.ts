@@ -48,8 +48,18 @@ export type RespostaDe<T extends Pedido['tipo']> = T extends keyof Respostas ? R
 
 type Envelope = { ok: true; valor: unknown } | { ok: false; erro: string };
 
+const EXTENSAO_ATUALIZADA = 'A extensão foi atualizada. Recarregue a página do VetSmart (F5).';
+
 export async function pedir<P extends Pedido>(pedido: P): Promise<RespostaDe<P['tipo']>> {
-  const r = (await browser.runtime.sendMessage(pedido)) as Envelope | undefined;
+  // Content script de antes de recarregar a extensão perde o runtime.
+  if (!browser.runtime?.id) throw new Error(EXTENSAO_ATUALIZADA);
+  let r: Envelope | undefined;
+  try {
+    r = (await browser.runtime.sendMessage(pedido)) as Envelope | undefined;
+  } catch (e) {
+    if (e instanceof Error && /context invalidated/i.test(e.message)) throw new Error(EXTENSAO_ATUALIZADA);
+    throw e;
+  }
   if (!r) throw new Error('Sem resposta da extensão. Recarregue a página.');
   if (!r.ok) throw new Error(r.erro);
   return r.valor as RespostaDe<P['tipo']>;

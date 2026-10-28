@@ -113,4 +113,21 @@ describe('montarLembretes', () => {
     const [l] = montarLembretes(dados, new Set(), hoje, CONFIG_PADRAO);
     expect(mensagemDoLembrete(l!, { modeloAniversario: '{tutor}|{pet}|{data}|{idade}', modeloVacina: '' })).toBe('Ana|Thor|28/10|3 anos');
   });
+
+  it('vacina atrasada usa o modelo de atrasada; sem ele, o de vacina', () => {
+    const vacinas = montarLembretes(dados, new Set(), hoje, CONFIG_PADRAO).filter((l) => l.tipo === 'vacina');
+    const atrasada = vacinas.find((l) => l.diasAte < 0)!;
+    const emDia = vacinas.find((l) => l.diasAte >= 0)!;
+    const modelos = { modeloAniversario: '', modeloVacina: 'prevista {vacina}', modeloVacinaAtrasada: 'atrasada {vacina}' };
+    expect(mensagemDoLembrete(atrasada, modelos)).toBe(`atrasada ${atrasada.vacina}`);
+    expect(mensagemDoLembrete(emDia, modelos)).toBe(`prevista ${emDia.vacina}`);
+    expect(mensagemDoLembrete(atrasada, { ...modelos, modeloVacinaAtrasada: '' })).toBe(`prevista ${atrasada.vacina}`);
+  });
+
+  it('vacina atrasada some quando passa do limite de atraso', () => {
+    const com = montarLembretes(dados, new Set(), hoje, CONFIG_PADRAO).filter((l) => l.tipo === 'vacina' && l.diasAte < 0);
+    const sem = montarLembretes(dados, new Set(), hoje, { ...CONFIG_PADRAO, diasAtrasoVacina: 0 }).filter((l) => l.diasAte < 0);
+    expect(com.length).toBeGreaterThan(0);
+    expect(sem).toEqual([]);
+  });
 });

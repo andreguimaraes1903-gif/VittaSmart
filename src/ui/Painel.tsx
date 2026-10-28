@@ -46,11 +46,17 @@ export function Painel({ aoSincronizar, aoFechar, aoMudar }: Props) {
     void carregar();
   }, [carregar]);
 
-  const marcar = async (l: Lembrete, enviado: boolean) => {
-    await pedir({ tipo: 'marcarEnviado', chave: l.chave, enviado });
-    await carregar();
-    aoMudar?.();
-  };
+  /** Ações de clique: a falha vira aviso no painel em vez de erro solto no console. */
+  const acao = (f: () => Promise<unknown>) => () =>
+    void f().catch((e: unknown) => setErro(e instanceof Error ? e.message : String(e)));
+  const abrirOpcoes = acao(() => pedir({ tipo: 'abrirOpcoes' }));
+
+  const marcar = (l: Lembrete, enviado: boolean) =>
+    acao(async () => {
+      await pedir({ tipo: 'marcarEnviado', chave: l.chave, enviado });
+      await carregar();
+      aoMudar?.();
+    })();
 
   const sincronizar = async () => {
     if (!aoSincronizar) return;
@@ -92,7 +98,7 @@ export function Painel({ aoSincronizar, aoFechar, aoMudar }: Props) {
           <div className="vs-subtitulo">Próximos {config.diasAntecedencia} dias</div>
         </div>
         <div className="vs-topo-acoes">
-          <button className="vs-icone" onClick={() => void pedir({ tipo: 'abrirOpcoes' })} aria-label="Opções" title="Opções">
+          <button className="vs-icone" onClick={abrirOpcoes} aria-label="Opções" title="Opções">
             <IconeEngrenagem />
           </button>
           {aoFechar && (
@@ -111,7 +117,7 @@ export function Painel({ aoSincronizar, aoFechar, aoMudar }: Props) {
       {erro && (
         <div className="vs-aviso vs-aviso-erro">
           {erro}
-          <button className="vs-link vs-link-erro" onClick={() => void pedir({ tipo: 'abrirOpcoes' })}>
+          <button className="vs-link vs-link-erro" onClick={abrirOpcoes}>
             Ver relatório
           </button>
         </div>

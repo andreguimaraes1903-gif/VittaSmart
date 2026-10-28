@@ -1,6 +1,5 @@
 import type { DadosSincronizados } from '../tipos';
 import { pedir } from '../mensagens';
-import { lerConfig } from '../config';
 import { hojeCivil } from '../regras/datas';
 import { POR_PAGINA, type OpcoesConsulta, type PedidoConsulta, type RespostaConsulta } from './consulta';
 import { interpretarPaciente, interpretarTutor, interpretarVacinas, type ObjetoParse } from './parse';
@@ -10,6 +9,8 @@ export type Progresso = (etapa: string, feitos: number, total?: number) => void;
 
 const PAUSA_MS = 250;
 const TEMPO_MAXIMO_MS = 90_000;
+/** Maior atraso aceito nas Opções (Vacinas atrasadas). */
+export const ATRASO_MAXIMO_DIAS = 365;
 
 let sessaoAtual: ResumoSessao | null = null;
 const pendentes = new Map<string, (r: RespostaConsulta) => void>();
@@ -146,14 +147,15 @@ async function listarTudo(
 }
 
 /**
- * Doses programadas (`isReminder: true`, como a tela de Vacinas do VetSmart
- * separa "Programadas" e "Atrasadas"), a partir do limite de atraso das Opções.
- * As aplicadas (`isReminder: false`) não interessam aos lembretes.
+ * Doses programadas (`isReminder: true`): as futuras e as atrasadas, como a tela
+ * de Vacinas do VetSmart separa "Programadas" e "Atrasadas". Busca até o limite
+ * máximo de atraso das Opções; a janela escolhida é aplicada nas regras, então
+ * mudar o limite não exige nova sincronização. Aplicadas (`isReminder: false`)
+ * não interessam aos lembretes.
  */
 async function listarVacinasProgramadas(s: ResumoSessao, progresso: Progresso): Promise<ObjetoParse[]> {
-  const { diasAtrasoVacina } = await lerConfig();
   const desde = new Date();
-  desde.setDate(desde.getDate() - diasAtrasoVacina);
+  desde.setDate(desde.getDate() - ATRASO_MAXIMO_DIAS);
   desde.setHours(0, 0, 0, 0);
   const where = { ...filtroClinica(s), isReminder: true, documentDate: { $gte: { __type: 'Date', iso: desde.toISOString() } } };
   const op: OpcoesConsulta = {

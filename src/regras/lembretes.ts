@@ -51,8 +51,17 @@ export function montarLembretes(
   return [...aniversarios, ...vacinas];
 }
 
-export function mensagemDoLembrete(l: Lembrete, config: Pick<Config, 'modeloAniversario' | 'modeloVacina'>): string {
-  const modelo = l.tipo === 'aniversario' ? config.modeloAniversario : config.modeloVacina;
+/** Vacina atrasada usa o modelo próprio; sem ele, o de vacina. */
+export function mensagemDoLembrete(
+  l: Lembrete,
+  config: Pick<Config, 'modeloAniversario' | 'modeloVacina'> & Partial<Pick<Config, 'modeloVacinaAtrasada'>>,
+): string {
+  const modelo =
+    l.tipo === 'aniversario'
+      ? config.modeloAniversario
+      : l.diasAte < 0 && config.modeloVacinaAtrasada
+        ? config.modeloVacinaAtrasada
+        : config.modeloVacina;
   return preencherModelo(modelo, {
     tutor: l.tutor ? primeiroNome(l.tutor.nome) : '',
     pet: l.paciente.nome,

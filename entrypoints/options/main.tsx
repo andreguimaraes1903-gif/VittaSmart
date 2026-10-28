@@ -152,7 +152,7 @@ function Opcoes() {
   const [aviso, setAviso] = useState<Aviso | null>(null);
   const [resultadoTeste, setResultadoTeste] = useState<Aviso | null>(null);
   const [testando, setTestando] = useState(false);
-  const [modelo, setModelo] = useState<'aniversario' | 'vacina'>('aniversario');
+  const [modelo, setModelo] = useState<'aniversario' | 'vacina' | 'atrasada'>('aniversario');
   const [resumo, setResumo] = useState<RespostaLembretes | null>(null);
   const [diag, setDiag] = useState<RegistroDiagnostico[]>([]);
   const [erros, setErros] = useState<RegistroErro[]>([]);
@@ -249,7 +249,8 @@ function Opcoes() {
             <Linha titulo="Antecedência" descricao="Mostra aniversários e vacinas que vencem nos próximos dias.">
               <Contador valor={config.diasAntecedencia} min={0} max={60} unidade="dias" aoMudar={(v) => void salvar({ diasAntecedencia: v })} />
             </Linha>
-            <Linha titulo="Vacinas atrasadas" descricao="Continua lembrando doses vencidas há até esse número de dias.">
+            <Linha titulo="Vacinas atrasadas" descricao="Doses programadas que já passaram e ainda não foram aplicadas continuam aparecendo por esse número de dias (0 desliga).">
+
               <Contador valor={config.diasAtrasoVacina} min={0} max={365} unidade="dias" aoMudar={(v) => void salvar({ diasAtrasoVacina: v })} />
             </Linha>
             <Linha titulo="Resumo diário" descricao="Hora da notificação do Chrome com o total de pendências.">
@@ -282,11 +283,22 @@ function Opcoes() {
               <button role="tab" aria-selected={modelo === 'vacina'} className={modelo === 'vacina' ? 'ativa' : ''} onClick={() => setModelo('vacina')}>
                 <IconeSeringa tamanho={16} /> Vacina
               </button>
+              <button role="tab" aria-selected={modelo === 'atrasada'} className={modelo === 'atrasada' ? 'ativa' : ''} onClick={() => setModelo('atrasada')}>
+                <IconeAlerta tamanho={16} /> Vacina atrasada
+              </button>
             </div>
-            {modelo === 'aniversario' ? (
+            {modelo === 'aniversario' && (
               <EditorModelo valor={config.modeloAniversario} padrao={CONFIG_PADRAO.modeloAniversario} aoMudar={(v) => void salvar({ modeloAniversario: v })} />
-            ) : (
+            )}
+            {modelo === 'vacina' && (
               <EditorModelo valor={config.modeloVacina} padrao={CONFIG_PADRAO.modeloVacina} aoMudar={(v) => void salvar({ modeloVacina: v })} />
+            )}
+            {modelo === 'atrasada' && (
+              <EditorModelo
+                valor={config.modeloVacinaAtrasada}
+                padrao={CONFIG_PADRAO.modeloVacinaAtrasada}
+                aoMudar={(v) => void salvar({ modeloVacinaAtrasada: v })}
+              />
             )}
           </Cartao>
 

@@ -53,5 +53,7 @@ export interface Config {
   horaNotificacao: number;
   modeloAniversario: string;
   modeloVacina: string;
+  /** Usado quando a dose programada já passou. */
+  modeloVacinaAtrasada: string;
   diagnostico: boolean;
 }
