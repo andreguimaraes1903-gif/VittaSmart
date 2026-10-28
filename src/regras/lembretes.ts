@@ -1,0 +1,75 @@
+import type { Config, DadosSincronizados, DataCivil, Lembrete, Tutor } from '../tipos';
+import { proximosAniversarios } from './aniversarios';
+import { proximasVacinas } from './vacinas';
+import { formatarData } from './datas';
+import { preencherModelo, primeiroNome, textoIdade } from './modelo';
+
+export const chaveAniversario = (pacienteId: string, data: DataCivil) => `aniv:${pacienteId}:${data}`;
+export const chaveVacina = (vacinaId: string, data: DataCivil) => `vac:${vacinaId}:${data}`;
+
+export function montarLembretes(
+  dados: DadosSincronizados,
+  enviados: Set<string>,
+  hoje: DataCivil,
+  config: Pick<Config, 'diasAntecedencia' | 'diasAtrasoVacina'>,
+): Lembrete[] {
+  const tutores = new Map<string, Tutor>(dados.tutores.map((t) => [t.id, t]));
+  const pacientes = new Map(dados.pacientes.map((p) => [p.id, p]));
+  const tutorDe = (tutorId: string | null) => (tutorId ? tutores.get(tutorId) ?? null : null);
+
+  const aniversarios: Lembrete[] = proximosAniversarios(dados.pacientes, hoje, config.diasAntecedencia).map((a) => {
+    const chave = chaveAniversario(a.paciente.id, a.data);
+    return {
+      chave,
+      tipo: 'aniversario',
+      data: a.data,
+      diasAte: a.diasAte,
+      paciente: a.paciente,
+      tutor: tutorDe(a.paciente.tutorId),
+      idade: a.idade,
+      enviado: enviados.has(chave),
+    };
+  });
+
+  const vacinas: Lembrete[] = [];
+  for (const v of proximasVacinas(dados.vacinas, hoje, config.diasAntecedencia, config.diasAtrasoVacina)) {
+    const paciente = pacientes.get(v.vacina.pacienteId);
+    if (!paciente) continue;
+    const chave = chaveVacina(v.vacina.id, v.vacina.proximaDose);
+    vacinas.push({
+      chave,
+      tipo: 'vacina',
+      data: v.vacina.proximaDose,
+      diasAte: v.diasAte,
+      paciente,
+      tutor: tutorDe(paciente.tutorId),
+      vacina: v.vacina.nome,
+      enviado: enviados.has(chave),
+    });
+  }
+
+  return [...aniversarios, ...vacinas];
+}
+
+export function mensagemDoLembrete(l: Lembrete, config: Pick<Config, 'modeloAniversario' | 'modeloVacina'>): string {
+  const modelo = l.tipo === 'aniversario' ? config.modeloAniversario : config.modeloVacina;
+  return preencherModelo(modelo, {
+    tutor: l.tutor ? primeiroNome(l.tutor.nome) : '',
+    pet: l.paciente.nome,
+    data: formatarData(l.data),
+    idade: l.idade ? textoIdade(l.idade) : '',
+    vacina: l.vacina ?? '',
+  });
+}
+
+/** Pendentes que entram no badge e na notificação diária (atrasadas contam). */
+export function contarPendentes(lembretes: Lembrete[]): { aniversarios: number; vacinas: number } {
+  let aniversarios = 0;
+  let vacinas = 0;
+  for (const l of lembretes) {
+    if (l.enviado) continue;
+    if (l.tipo === 'aniversario') aniversarios++;
+    else vacinas++;
+  }
+  return { aniversarios, vacinas };
+}

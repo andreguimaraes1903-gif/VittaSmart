@@ -1,0 +1,73 @@
+.vs-painel {
+  --vs-fundo: #ffffff;
+  --vs-texto: #1f2937;
+  --vs-sub: #6b7280;
+  --vs-borda: #e5e7eb;
+  --vs-primaria: #0f766e;
+  --vs-whats: #16a34a;
+  --vs-alerta: #b91c1c;
+  font: 14px/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: var(--vs-texto);
+  background: var(--vs-fundo);
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  max-height: 560px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+.vs-painel * { box-sizing: border-box; }
+.vs-topo { display: flex; align-items: baseline; gap: 8px; padding: 12px 14px 8px; }
+.vs-topo strong { font-size: 16px; }
+.vs-sub { color: var(--vs-sub); font-size: 12px; }
+.vs-icone { margin-left: auto; border: 0; background: none; font-size: 20px; cursor: pointer; color: var(--vs-sub); }
+.vs-abas { display: flex; border-bottom: 1px solid var(--vs-borda); padding: 0 8px; }
+.vs-abas button {
+  flex: 1; border: 0; background: none; padding: 8px; cursor: pointer; font: inherit; color: var(--vs-sub);
+  border-bottom: 2px solid transparent;
+}
+.vs-abas button.ativa { color: var(--vs-primaria); border-bottom-color: var(--vs-primaria); font-weight: 600; }
+.vs-contador {
+  display: inline-block; margin-left: 6px; min-width: 18px; padding: 0 5px; border-radius: 9px;
+  background: var(--vs-primaria); color: #fff; font-size: 11px; line-height: 18px;
+}
+.vs-lista { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+.vs-item { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--vs-borda); }
+.vs-item.enviado { opacity: 0.55; }
+.vs-item.atrasado .vs-prazo { color: var(--vs-alerta); }
+.vs-info { flex: 1; min-width: 0; }
+.vs-acoes { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.vs-vazio { padding: 24px 14px; color: var(--vs-sub); text-align: center; }
+.vs-erro { margin: 8px 14px; padding: 8px; border-radius: 6px; background: #fef2f2; color: var(--vs-alerta); font-size: 13px; }
+.vs-botao {
+  border: 0; border-radius: 6px; padding: 6px 10px; background: var(--vs-primaria); color: #fff;
+  font: inherit; font-size: 13px; cursor: pointer; text-decoration: none; white-space: nowrap;
+}
+.vs-botao:disabled { opacity: 0.6; cursor: progress; }
+.vs-whats { background: var(--vs-whats); }
+.vs-link { border: 0; background: none; padding: 0; color: var(--vs-primaria); font: inherit; font-size: 12px; cursor: pointer; text-decoration: underline; }
+.vs-rodape { padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--vs-borda); }
+.vs-check { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--vs-sub); }
+.vs-sync { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+
+/* Botão flutuante (content script) */
+.vs-flutuante {
+  position: fixed; right: 20px; bottom: 20px; z-index: 2147483647;
+  font: 14px/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+.vs-fab {
+  position: relative; width: 52px; height: 52px; border-radius: 50%; border: 0; cursor: pointer;
+  background: #0f766e; color: #fff; font-size: 24px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+.vs-fab .vs-contador { position: absolute; top: -4px; right: -4px; margin: 0; background: #b91c1c; }
+.vs-flutuante .vs-painel {
+  position: absolute; right: 0; bottom: 64px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+
+@media (prefers-color-scheme: dark) {
+  .vs-painel { --vs-fundo: #111827; --vs-texto: #f3f4f6; --vs-sub: #9ca3af; --vs-borda: #374151; --vs-primaria: #2dd4bf; }
+  .vs-erro { background: #3f1d1d; color: #fecaca; }
+  .vs-botao { color: #04201d; }
+  .vs-whats { color: #fff; }
+}

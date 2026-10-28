@@ -1,0 +1,78 @@
+import Dexie, { type EntityTable } from 'dexie';
+import type { DadosSincronizados, Paciente, Tutor, Vacina } from './tipos';
+import type { RegistroDiagnostico } from './vetsmart/diagnostico';
+
+export interface Envio {
+  chave: string;
+  em: string;
+}
+
+export interface Meta {
+  chave: string;
+  valor: string;
+}
+
+/**
+ * Banco local (IndexedDB da origem da extensão).
+ * Só o background acessa: content scripts usariam o IndexedDB do VetSmart.
+ */
+export const db = new Dexie('vittasmart') as Dexie & {
+  pacientes: EntityTable<Paciente, 'id'>;
+  tutores: EntityTable<Tutor, 'id'>;
+  vacinas: EntityTable<Vacina, 'id'>;
+  envios: EntityTable<Envio, 'chave'>;
+  meta: EntityTable<Meta, 'chave'>;
+  diagnostico: EntityTable<RegistroDiagnostico, 'chave'>;
+};
+
+db.version(1).stores({
+  pacientes: 'id, tutorId, nascimento',
+  tutores: 'id',
+  vacinas: 'id, pacienteId, proximaDose',
+  envios: 'chave',
+  meta: 'chave',
+  diagnostico: 'chave',
+});
+
+export async function lerDados(): Promise<DadosSincronizados> {
+  const [pacientes, tutores, vacinas] = await Promise.all([db.pacientes.toArray(), db.tutores.toArray(), db.vacinas.toArray()]);
+  return { pacientes, tutores, vacinas };
+}
+
+/** Substitui tudo (a sincronização traz a base completa). Envios são preservados. */
+export async function salvarDados(dados: DadosSincronizados, origem: string): Promise<void> {
+  await db.transaction('rw', [db.pacientes, db.tutores, db.vacinas, db.meta], async () => {
+    await Promise.all([db.pacientes.clear(), db.tutores.clear(), db.vacinas.clear()]);
+    await db.pacientes.bulkPut(dados.pacientes);
+    await db.tutores.bulkPut(dados.tutores);
+    await db.vacinas.bulkPut(dados.vacinas);
+    await db.meta.bulkPut([
+      { chave: 'ultimaSincronizacao', valor: new Date().toISOString() },
+      { chave: 'origemDados', valor: origem },
+    ]);
+  });
+}
+
+export async function lerMeta(chave: string): Promise<string | null> {
+  return (await db.meta.get(chave))?.valor ?? null;
+}
+
+export interface Backup extends DadosSincronizados {
+  versao: 1;
+  geradoEm: string;
+  envios: Envio[];
+}
+
+export async function exportarBackup(): Promise<Backup> {
+  return { versao: 1, geradoEm: new Date().toISOString(), ...(await lerDados()), envios: await db.envios.toArray() };
+}
+
+export async function importarBackup(b: Backup): Promise<void> {
+  if (b?.versao !== 1) throw new Error('Arquivo de backup inválido.');
+  await salvarDados(b, 'backup');
+  await db.envios.bulkPut(b.envios ?? []);
+}
+
+export async function apagarTudo(): Promise<void> {
+  await Promise.all(db.tables.map((t) => t.clear()));
+}

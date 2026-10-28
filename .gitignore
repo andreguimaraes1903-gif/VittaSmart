@@ -1,0 +1,10 @@
+node_modules
+.output
+.wxt
+stats.html
+*.log
+
+# Dados de pacientes nunca entram no repositório (repo público / LGPD)
+vittasmart-backup*.json
+vittasmart-diagnostico*.json
+*.har
