@@ -101,6 +101,9 @@ async function tratar(p: Pedido): Promise<unknown> {
     case 'notificarAgora':
       await notificar();
       return;
+    case 'abrirOpcoes':
+      await browser.runtime.openOptionsPage();
+      return;
   }
 }
 

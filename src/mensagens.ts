@@ -15,7 +15,8 @@ export type Pedido =
   | { tipo: 'registrarDiagnostico'; captura: Omit<CapturaDiagnostico, 'origem'> }
   | { tipo: 'lerDiagnostico' }
   | { tipo: 'limparDiagnostico' }
-  | { tipo: 'notificarAgora' };
+  | { tipo: 'notificarAgora' }
+  | { tipo: 'abrirOpcoes' };
 
 export interface RespostaLembretes {
   lembretes: Lembrete[];

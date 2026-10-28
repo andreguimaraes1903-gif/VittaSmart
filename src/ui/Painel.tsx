@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react';
-import { browser } from 'wxt/browser';
 import { configItem, CONFIG_PADRAO } from '../config';
 import { pedir, type RespostaLembretes } from '../mensagens';
 import { descreverPrazo, formatarData } from '../regras/datas';
@@ -122,8 +121,9 @@ export function Painel({ aoSincronizar, aoFechar }: Props) {
   );
 }
 
+/** Via background: uma página do VetSmart não pode abrir chrome-extension:// direto (ERR_BLOCKED_BY_CLIENT). */
 function abrirOpcoes() {
-  window.open(browser.runtime.getURL('/options.html'), '_blank');
+  void pedir({ tipo: 'abrirOpcoes' });
 }
 
 function ItemLembrete({ l, config, aoMarcar }: { l: Lembrete; config: Config; aoMarcar: (l: Lembrete, enviado: boolean) => void }) {
