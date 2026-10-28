@@ -7,4 +7,5 @@ stats.html
 # Dados de pacientes nunca entram no repositório (repo público / LGPD)
 vittasmart-backup*.json
 vittasmart-diagnostico*.json
+vittasmart-erros*.json
 *.har

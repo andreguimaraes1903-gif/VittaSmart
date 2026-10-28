@@ -1,3 +1,4 @@
+import { browser } from 'wxt/browser';
 import { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { configItem, CONFIG_PADRAO } from '@/src/config';
@@ -5,6 +6,7 @@ import type { Backup } from '@/src/db';
 import { pedir } from '@/src/mensagens';
 import type { Config } from '@/src/tipos';
 import type { RegistroDiagnostico } from '@/src/vetsmart/diagnostico';
+import type { RegistroErro } from '@/src/erros';
 import './opcoes.css';
 
 function baixarJson(nome: string, dados: unknown) {
@@ -22,12 +24,15 @@ function Opcoes() {
   const [config, setConfig] = useState<Config>(CONFIG_PADRAO);
   const [aviso, setAviso] = useState<string | null>(null);
   const [diag, setDiag] = useState<RegistroDiagnostico[]>([]);
+  const [erros, setErros] = useState<RegistroErro[]>([]);
+  const carregarErros = async () => setErros(await pedir({ tipo: 'lerErros' }));
 
   const carregarDiag = async () => setDiag(await pedir({ tipo: 'lerDiagnostico' }));
 
   useEffect(() => {
     void configItem.getValue().then((c) => setConfig({ ...CONFIG_PADRAO, ...c }));
     void carregarDiag();
+    void carregarErros();
   }, []);
 
   const avisar = (t: string) => {
@@ -135,6 +140,50 @@ function Opcoes() {
             Apagar dados locais
           </button>
         </div>
+      </section>
+
+      <h2 id="erros">Relatório de erros</h2>
+      <section>
+        <p className="sub">
+          Falhas da sincronização e da extensão ficam guardadas aqui (até 200), com detalhes técnicos. Não incluem senha, token de sessão nem
+          dados de pacientes. Baixe e envie para o desenvolvedor quando algo der errado.
+        </p>
+        <p className="sub">{erros.length ? `${erros.length} erro(s) registrado(s).` : 'Nenhum erro registrado.'}</p>
+        <button
+          onClick={() =>
+            baixarJson(`vittasmart-erros-${hoje()}.json`, {
+              geradoEm: new Date().toISOString(),
+              versao: browser.runtime.getManifest().version,
+              navegador: navigator.userAgent,
+              erros,
+            })
+          }
+          disabled={!erros.length}
+        >
+          Exportar relatório de erros
+        </button>
+        <button className="secundario" onClick={() => void carregarErros()}>
+          Atualizar
+        </button>
+        <button
+          className="perigo"
+          onClick={() =>
+            void executar(async () => {
+              await pedir({ tipo: 'limparErros' });
+              await carregarErros();
+            }, 'Erros apagados.')
+          }
+        >
+          Limpar
+        </button>
+        {erros.length > 0 && (
+          <pre>
+            {erros
+              .slice(0, 15)
+              .map((e) => `${new Date(e.em).toLocaleString('pt-BR')}  ${e.contexto}\n  ${e.mensagem}${e.tecnica && e.tecnica !== e.mensagem ? `\n  (${e.tecnica.split('\n')[0]})` : ''}`)
+              .join('\n\n')}
+          </pre>
+        )}
       </section>
 
       <h2>Diagnóstico da API do VetSmart</h2>

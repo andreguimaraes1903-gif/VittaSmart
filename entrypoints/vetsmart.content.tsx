@@ -7,7 +7,8 @@ import { pedir } from '@/src/mensagens';
 import { contarPendentes } from '@/src/regras/lembretes';
 import { Painel } from '@/src/ui/Painel';
 import { IconeFechar, IconeSino } from '@/src/ui/icones';
-import { escutarSessao, sincronizarVetSmart } from '@/src/vetsmart/adaptador';
+import { escutarSessao, estadoSessao, sincronizarVetSmart } from '@/src/vetsmart/adaptador';
+import { normalizarUrl } from '@/src/vetsmart/estrutura';
 import { ORIGEM_DIAG, type CapturaDiagnostico } from '@/src/vetsmart/diagnostico';
 import '@/src/ui/estilos.css';
 
@@ -73,9 +74,23 @@ function BotaoFlutuante() {
   }, []);
 
   const sincronizar = async (progresso: (t: string) => void) => {
-    const dados = await sincronizarVetSmart((etapa, feitos) => progresso(`${etapa}: ${feitos}`));
-    progresso('Salvando…');
-    await pedir({ tipo: 'salvarDados', dados, origem: 'vetsmart' });
+    let etapa = 'início';
+    try {
+      const dados = await sincronizarVetSmart((e, feitos) => {
+        etapa = `${e}: ${feitos}`;
+        progresso(etapa);
+      });
+      etapa = 'salvando';
+      progresso('Salvando…');
+      await pedir({ tipo: 'salvarDados', dados, origem: 'vetsmart' });
+    } catch (e) {
+      const mensagem = e instanceof Error ? e.message : String(e);
+      await pedir({
+        tipo: 'registrarErro',
+        erro: { contexto: 'Sincronização (resumo)', mensagem, pagina: normalizarUrl(location.href), detalhes: { etapa, ...estadoSessao() } },
+      }).catch(() => undefined);
+      throw e;
+    }
   };
 
   return (

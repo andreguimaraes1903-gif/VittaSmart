@@ -104,7 +104,14 @@ export function Painel({ aoSincronizar, aoFechar, aoMudar }: Props) {
         <Aba ativa={aba === 'vacina'} onClick={() => setAba('vacina')} icone={<IconeSeringa />} rotulo="Vacinas" qtd={pendentes('vacina')} />
       </div>
 
-      {erro && <p className="vs-aviso vs-aviso-erro">{erro}</p>}
+      {erro && (
+        <div className="vs-aviso vs-aviso-erro">
+          {erro}
+          <button className="vs-link vs-link-erro" onClick={() => void pedir({ tipo: 'abrirOpcoes' })}>
+            Ver relatório de erros
+          </button>
+        </div>
+      )}
       {sucesso && <p className="vs-aviso vs-aviso-ok">{sucesso}</p>}
 
       <div className="vs-lista">

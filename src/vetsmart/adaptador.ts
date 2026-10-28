@@ -1,11 +1,12 @@
 import type { DadosSincronizados } from '../tipos';
+import { pedir } from '../mensagens';
 import { hojeCivil } from '../regras/datas';
+import { POR_PAGINA, type OpcoesConsulta } from './consulta';
 import { interpretarPaciente, interpretarTutor, interpretarVacinas, type ObjetoParse } from './parse';
 import { ORIGEM_PEDIR_SESSAO, ORIGEM_SESSAO, type SessaoParse } from './sessao';
 
 export type Progresso = (etapa: string, feitos: number, total?: number) => void;
 
-const POR_PAGINA = 1000;
 const PAUSA_MS = 250;
 
 let sessaoAtual: SessaoParse | null = null;
@@ -24,6 +25,17 @@ export function escutarSessao(): void {
   window.postMessage({ origem: ORIGEM_PEDIR_SESSAO }, location.origin);
 }
 
+/** Estado da sessão capturada, sem credenciais (para o relatório de erros). */
+export function estadoSessao(): Record<string, unknown> {
+  return {
+    sessaoCapturada: !!sessaoAtual,
+    servidor: sessaoAtual?.servidor,
+    temClinica: !!sessaoAtual?.clinicId,
+    temInstallationId: !!sessaoAtual?.installationId,
+    clientVersion: sessaoAtual?.clientVersion,
+  };
+}
+
 async function obterSessao(): Promise<SessaoParse> {
   if (!sessaoAtual) {
     window.postMessage({ origem: ORIGEM_PEDIR_SESSAO }, location.origin);
@@ -35,37 +47,9 @@ async function obterSessao(): Promise<SessaoParse> {
   return sessaoAtual;
 }
 
-class ErroParse extends Error {}
-
-interface Opcoes {
-  keys?: string;
-  include?: string;
-}
-
-async function consultar(s: SessaoParse, classe: string, where: Record<string, unknown>, op: Opcoes): Promise<ObjetoParse[]> {
-  const corpo = {
-    where,
-    limit: POR_PAGINA,
-    order: 'objectId',
-    ...(op.keys ? { keys: op.keys } : {}),
-    ...(op.include ? { include: op.include } : {}),
-    _method: 'GET',
-    _ApplicationId: s.appId,
-    _ClientVersion: s.clientVersion,
-    _InstallationId: s.installationId,
-    _SessionToken: s.token,
-  };
-  const r = await fetch(`${s.servidor}/classes/${classe}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify(corpo),
-  });
-  const json = (await r.json().catch(() => ({}))) as { results?: ObjetoParse[]; code?: number; error?: string };
-  if (!r.ok || !json.results) {
-    if (json.code === 209) throw new ErroParse('Sessão do VetSmart expirada. Recarregue a página, entre de novo e sincronize.');
-    throw new ErroParse(`VetSmart recusou a consulta de ${classe} (${r.status}${json.error ? `: ${json.error}` : ''}).`);
-  }
-  return json.results;
+/** A consulta em si roda no background (ver consulta.ts). */
+async function consultar(s: SessaoParse, classe: string, where: Record<string, unknown>, op: OpcoesConsulta): Promise<ObjetoParse[]> {
+  return pedir({ tipo: 'consultarParse', sessao: s, classe, where, op });
 }
 
 /** Percorre a classe inteira em ordem de objectId (paginação por chave, sem limite de skip). */
@@ -74,7 +58,7 @@ async function listarTudo(
   classe: string,
   rotulo: string,
   progresso: Progresso,
-  op: Opcoes = {},
+  op: OpcoesConsulta = {},
 ): Promise<ObjetoParse[]> {
   const filtro: Record<string, unknown> = { isDeleted: false };
   if (s.clinicId) filtro.clinicId = s.clinicId;

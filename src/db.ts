@@ -1,6 +1,7 @@
 import Dexie, { type EntityTable } from 'dexie';
 import type { DadosSincronizados, Paciente, Tutor, Vacina } from './tipos';
 import type { RegistroDiagnostico } from './vetsmart/diagnostico';
+import { MAX_ERROS, type RegistroErro } from './erros';
 
 export interface Envio {
   chave: string;
@@ -23,6 +24,7 @@ export const db = new Dexie('vittasmart') as Dexie & {
   envios: EntityTable<Envio, 'chave'>;
   meta: EntityTable<Meta, 'chave'>;
   diagnostico: EntityTable<RegistroDiagnostico, 'chave'>;
+  erros: EntityTable<RegistroErro, 'id'>;
 };
 
 db.version(1).stores({
@@ -33,6 +35,7 @@ db.version(1).stores({
   meta: 'chave',
   diagnostico: 'chave',
 });
+db.version(2).stores({ erros: '++id, em' });
 
 export async function lerDados(): Promise<DadosSincronizados> {
   const [pacientes, tutores, vacinas] = await Promise.all([db.pacientes.toArray(), db.tutores.toArray(), db.vacinas.toArray()]);
@@ -73,6 +76,16 @@ export async function importarBackup(b: Backup): Promise<void> {
   await db.envios.bulkPut(b.envios ?? []);
 }
 
+/** Apaga os dados de pacientes (mantém o registro de erros, útil para suporte). */
 export async function apagarTudo(): Promise<void> {
-  await Promise.all(db.tables.map((t) => t.clear()));
+  await Promise.all(db.tables.filter((t) => t.name !== 'erros').map((t) => t.clear()));
+}
+
+export async function registrarErro(erro: Omit<RegistroErro, 'id'>): Promise<void> {
+  await db.erros.add(erro);
+  const total = await db.erros.count();
+  if (total > MAX_ERROS) {
+    const antigos = await db.erros.orderBy('em').limit(total - MAX_ERROS).primaryKeys();
+    await db.erros.bulkDelete(antigos);
+  }
 }

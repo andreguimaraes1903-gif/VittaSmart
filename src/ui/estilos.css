@@ -56,6 +56,7 @@
 /* Avisos */
 .vs-aviso { margin: 10px 12px 0; padding: 9px 12px; border-radius: 10px; font-size: 13px; }
 .vs-aviso-erro { background: var(--vs-alerta-suave); color: var(--vs-alerta); }
+.vs-link-erro { display: block; margin-top: 4px; color: inherit; text-decoration: underline; }
 .vs-aviso-ok { background: var(--vs-primaria-suave); color: var(--vs-primaria); }
 
 /* Lista */

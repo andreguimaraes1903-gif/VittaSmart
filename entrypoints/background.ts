@@ -1,6 +1,8 @@
 import { browser } from 'wxt/browser';
 import { defineBackground } from 'wxt/utils/define-background';
-import { apagarTudo, db, exportarBackup, importarBackup, lerDados, lerMeta, salvarDados } from '@/src/db';
+import { apagarTudo, db, exportarBackup, importarBackup, lerDados, lerMeta, registrarErro, salvarDados } from '@/src/db';
+import { consultarParse, ErroConsulta } from '@/src/vetsmart/consulta';
+import type { RegistroErro } from '@/src/erros';
 import { configItem, lerConfig } from '@/src/config';
 import { dadosDemo } from '@/src/demo';
 import { embrulhar, type Pedido, type RespostaLembretes } from '@/src/mensagens';
@@ -61,6 +63,10 @@ async function agendarAlarme(): Promise<void> {
   await browser.alarms.create(ALARME, { when: proximo.getTime(), periodInMinutes: 24 * 60 });
 }
 
+function registrarErroComp(e: Omit<RegistroErro, 'id' | 'em' | 'versao' | 'navegador'>) {
+  return registrarErro({ ...e, em: new Date().toISOString(), versao: browser.runtime.getManifest().version, navegador: navigator.userAgent });
+}
+
 async function tratar(p: Pedido): Promise<unknown> {
   switch (p.tipo) {
     case 'lembretes':
@@ -112,6 +118,23 @@ async function tratar(p: Pedido): Promise<unknown> {
     case 'notificarAgora':
       await notificar();
       return;
+    case 'consultarParse':
+      try {
+        return await consultarParse(p.sessao, p.classe, p.where, p.op);
+      } catch (e) {
+        if (e instanceof ErroConsulta) {
+          await registrarErroComp({ contexto: `Sincronização: ${p.classe}`, mensagem: e.message, tecnica: e.tecnica, detalhes: e.detalhes });
+        }
+        throw e;
+      }
+    case 'registrarErro':
+      await registrarErroComp(p.erro);
+      return;
+    case 'lerErros':
+      return db.erros.orderBy('em').reverse().toArray();
+    case 'limparErros':
+      await db.erros.clear();
+      return;
     case 'abrirOpcoes':
       await browser.runtime.openOptionsPage();
       return;
@@ -138,7 +161,16 @@ export default defineBackground(() => {
   });
 
   browser.runtime.onMessage.addListener((msg, _sender, responder) => {
-    embrulhar(tratar(msg as Pedido)).then(responder);
+    const pedido = msg as Pedido;
+    const execucao = tratar(pedido).catch(async (e: unknown) => {
+      // Erros de consulta já foram registrados com detalhes; os demais entram aqui.
+      if (!(e instanceof ErroConsulta) && pedido.tipo !== 'registrarErro') {
+        const tecnica = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+        await registrarErroComp({ contexto: `Extensão: ${pedido.tipo}`, mensagem: tecnica, tecnica: e instanceof Error ? e.stack : undefined }).catch(() => undefined);
+      }
+      throw e;
+    });
+    embrulhar(execucao).then(responder);
     return true; // resposta assíncrona
   });
 });

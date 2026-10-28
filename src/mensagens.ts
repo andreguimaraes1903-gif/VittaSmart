@@ -1,6 +1,10 @@
 import { browser } from 'wxt/browser';
 import type { Backup } from './db';
+import type { RegistroErro } from './erros';
 import type { DadosSincronizados, Lembrete } from './tipos';
+import type { OpcoesConsulta } from './vetsmart/consulta';
+import type { ObjetoParse } from './vetsmart/parse';
+import type { SessaoParse } from './vetsmart/sessao';
 import type { CapturaDiagnostico, RegistroDiagnostico } from './vetsmart/diagnostico';
 
 /** Pedidos que a UI (popup, opções, content script) faz ao background. */
@@ -16,7 +20,11 @@ export type Pedido =
   | { tipo: 'lerDiagnostico' }
   | { tipo: 'limparDiagnostico' }
   | { tipo: 'notificarAgora' }
-  | { tipo: 'abrirOpcoes' };
+  | { tipo: 'abrirOpcoes' }
+  | { tipo: 'consultarParse'; sessao: SessaoParse; classe: string; where: Record<string, unknown>; op: OpcoesConsulta }
+  | { tipo: 'registrarErro'; erro: Omit<RegistroErro, 'id' | 'em' | 'versao' | 'navegador'> }
+  | { tipo: 'lerErros' }
+  | { tipo: 'limparErros' };
 
 export interface RespostaLembretes {
   lembretes: Lembrete[];
@@ -29,6 +37,8 @@ type Respostas = {
   lembretes: RespostaLembretes;
   exportar: Backup;
   lerDiagnostico: RegistroDiagnostico[];
+  consultarParse: ObjetoParse[];
+  lerErros: RegistroErro[];
 };
 
 export type RespostaDe<T extends Pedido['tipo']> = T extends keyof Respostas ? Respostas[T] : void;
