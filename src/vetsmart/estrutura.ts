@@ -4,7 +4,7 @@
  */
 export type Estrutura =
   | { tipo: 'nulo' | 'booleano' | 'numero' }
-  | { tipo: 'texto'; formato?: 'data' | 'data-hora' | 'telefone?' | 'email?' | 'id?' | 'vazio' }
+  | { tipo: 'texto'; formato?: 'data' | 'data-hora' | 'telefone?' | 'email?' | 'id?' | 'vazio'; mascaras?: string[]; valorEsquema?: string }
   | { tipo: 'lista'; tamanho: number; item?: Estrutura }
   | { tipo: 'objeto'; campos: Record<string, Estrutura> }
   | { tipo: 'truncado' };
@@ -18,7 +18,11 @@ export function extrairEstrutura(valor: unknown, prof = 0): Estrutura {
   if (typeof valor === 'number') return { tipo: 'numero' };
   if (typeof valor === 'string') {
     const formato = formatoTexto(valor);
-    return formato ? { tipo: 'texto', formato } : { tipo: 'texto' };
+    const e: Estrutura = formato ? { tipo: 'texto', formato } : { tipo: 'texto' };
+    // Textos curtos sem formato conhecido ganham uma máscara (9 = dígito, a = letra):
+    // revela o formato ("99/99", "aaaa") sem revelar o valor.
+    if (!formato && valor.length <= 12) e.mascaras = [mascarar(valor)];
+    return e;
   }
   if (Array.isArray(valor)) {
     // Mescla os campos de até 20 itens para pegar campos opcionais.
@@ -28,10 +32,21 @@ export function extrairEstrutura(valor: unknown, prof = 0): Estrutura {
   }
   if (typeof valor === 'object') {
     const campos: Record<string, Estrutura> = {};
-    for (const [k, v] of Object.entries(valor as Record<string, unknown>)) campos[k] = extrairEstrutura(v, prof + 1);
+    for (const [k, v] of Object.entries(valor as Record<string, unknown>)) campos[chaveSegura(k)] = extrairEstrutura(v, prof + 1);
     return { tipo: 'objeto', campos };
   }
   return { tipo: 'nulo' };
+}
+
+export function mascarar(s: string): string {
+  return s.replace(/\d/g, '9').replace(/\p{L}/gu, 'a');
+}
+
+/** Chaves que carregam ids (ex.: ACL "role:Clinic_Pj17tDafNx") não vão para o relatório. */
+function chaveSegura(k: string): string {
+  if (/^role:/.test(k)) return 'role:…';
+  if (/^[A-Za-z0-9]{10}$/.test(k) && /[A-Z]/.test(k) && /[a-z]/.test(k)) return ':id';
+  return k;
 }
 
 function formatoTexto(s: string): 'data' | 'data-hora' | 'telefone?' | 'email?' | 'id?' | 'vazio' | undefined {
@@ -59,6 +74,13 @@ export function mesclar(a: Estrutura | undefined, b: Estrutura): Estrutura {
     const tamanho = Math.max(a.tamanho, b.tamanho);
     return item ? { tipo: 'lista', tamanho, item } : { tipo: 'lista', tamanho };
   }
+  if (a.tipo === 'texto' && b.tipo === 'texto') {
+    const mascaras = [...new Set([...(a.mascaras ?? []), ...(b.mascaras ?? [])])].slice(0, 8);
+    const formato = a.formato === 'vazio' ? b.formato : a.formato;
+    const r: Estrutura = formato ? { tipo: 'texto', formato } : { tipo: 'texto' };
+    if (mascaras.length) r.mascaras = mascaras;
+    return r;
+  }
   return a;
 }
 
@@ -72,17 +94,31 @@ export function normalizarUrl(url: string, base = 'https://prontuario.vetsmart.c
   }
   const caminho = u.pathname
     .split('/')
-    .map((seg) => (/^\d+$/.test(seg) || /^[0-9a-f-]{16,}$/i.test(seg) || (/^[A-Za-z0-9]{10}$/.test(seg) && /\d/.test(seg)) ? ':id' : seg))
+    .map((seg) => (/^\d+$/.test(seg) || /^[0-9a-f-]{16,}$/i.test(seg) || ehObjectId(seg) ? ':id' : seg))
     .join('/');
   const chaves = [...new Set([...u.searchParams.keys()])].sort();
   return `${u.origin}${caminho}${chaves.length ? `?${chaves.map((k) => `${k}=…`).join('&')}` : ''}`;
+}
+
+/** objectId do Parse: 10 caracteres alfanuméricos com maiúsculas, minúsculas ou dígitos misturados. */
+function ehObjectId(seg: string): boolean {
+  return /^[A-Za-z0-9]{10}$/.test(seg) && [/[A-Z]/, /[a-z]/, /\d/].filter((r) => r.test(seg)).length >= 2;
 }
 
 /** Corpo de requisição (ex.: POST de consulta) também vira só estrutura. */
 export function estruturaDoCorpo(corpo: unknown): Estrutura | undefined {
   if (typeof corpo !== 'string' || corpo === '') return undefined;
   try {
-    return extrairEstrutura(JSON.parse(corpo));
+    const json = JSON.parse(corpo) as unknown;
+    const e = extrairEstrutura(json);
+    // include/keys/order/className são nomes de campos (esquema), não dados: mantém o valor.
+    if (e.tipo === 'objeto' && json && typeof json === 'object') {
+      for (const k of ['include', 'keys', 'order', 'className']) {
+        const v = (json as Record<string, unknown>)[k];
+        if (typeof v === 'string' && /^[\w.,-]*$/.test(v)) e.campos[k] = { tipo: 'texto', valorEsquema: v } as Estrutura;
+      }
+    }
+    return e;
   } catch {
     return { tipo: 'texto' };
   }

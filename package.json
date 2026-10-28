@@ -2,7 +2,7 @@
   "name": "vittasmart",
   "description": "Lembretes de aniversários e vacinas a partir do VetSmart, com atalho para o WhatsApp do tutor.",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "wxt",

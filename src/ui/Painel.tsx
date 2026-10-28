@@ -1,24 +1,35 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { configItem, CONFIG_PADRAO } from '../config';
 import { pedir, type RespostaLembretes } from '../mensagens';
-import { descreverPrazo, formatarData } from '../regras/datas';
+import { formatarData } from '../regras/datas';
 import { mensagemDoLembrete } from '../regras/lembretes';
 import { textoIdade } from '../regras/modelo';
 import { linkWhatsapp, normalizarWhatsapp } from '../regras/whatsapp';
 import type { Config, Lembrete, TipoLembrete } from '../tipos';
+import { IconeAtualizar, IconeBolo, IconeCheck, IconeEngrenagem, IconeFechar, IconeSeringa, IconeWhatsApp } from './icones';
 
 interface Props {
   /** Presente só dentro do VetSmart (content script), onde a sessão está logada. */
   aoSincronizar?: (progresso: (texto: string) => void) => Promise<void>;
   aoFechar?: () => void;
+  /** Avisado quando a lista muda (para o contador do botão flutuante). */
+  aoMudar?: () => void;
 }
 
-export function Painel({ aoSincronizar, aoFechar }: Props) {
+const GRUPOS: { titulo: string; filtro: (d: number) => boolean }[] = [
+  { titulo: 'Atrasadas', filtro: (d) => d < 0 },
+  { titulo: 'Hoje', filtro: (d) => d === 0 },
+  { titulo: 'Amanhã', filtro: (d) => d === 1 },
+  { titulo: 'Próximos dias', filtro: (d) => d > 1 },
+];
+
+export function Painel({ aoSincronizar, aoFechar, aoMudar }: Props) {
   const [aba, setAba] = useState<TipoLembrete>('aniversario');
   const [dados, setDados] = useState<RespostaLembretes | null>(null);
   const [config, setConfig] = useState<Config>(CONFIG_PADRAO);
   const [mostrarEnviados, setMostrarEnviados] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [sucesso, setSucesso] = useState<string | null>(null);
   const [progresso, setProgresso] = useState<string | null>(null);
 
   const carregar = useCallback(async () => {
@@ -38,15 +49,20 @@ export function Painel({ aoSincronizar, aoFechar }: Props) {
   const marcar = async (l: Lembrete, enviado: boolean) => {
     await pedir({ tipo: 'marcarEnviado', chave: l.chave, enviado });
     await carregar();
+    aoMudar?.();
   };
 
   const sincronizar = async () => {
     if (!aoSincronizar) return;
     setErro(null);
-    setProgresso('Iniciando…');
+    setSucesso(null);
+    setProgresso('Conectando…');
     try {
       await aoSincronizar(setProgresso);
-      await carregar();
+      const novo = await pedir({ tipo: 'lembretes' });
+      setDados(novo);
+      setSucesso(`Pronto! ${novo.totais.pacientes} pacientes, ${novo.totais.tutores} tutores e ${novo.totais.vacinas} vacinas com próxima dose.`);
+      aoMudar?.();
     } catch (e) {
       setErro(e instanceof Error ? e.message : String(e));
     } finally {
@@ -54,106 +70,170 @@ export function Painel({ aoSincronizar, aoFechar }: Props) {
     }
   };
 
-  const doTipo = (dados?.lembretes ?? []).filter((l) => l.tipo === aba);
+  const lembretes = dados?.lembretes ?? [];
+  const doTipo = lembretes.filter((l) => l.tipo === aba);
   const visiveis = doTipo.filter((l) => mostrarEnviados || !l.enviado);
-  const pendentes = (t: TipoLembrete) => (dados?.lembretes ?? []).filter((l) => l.tipo === t && !l.enviado).length;
+  const enviados = doTipo.length - doTipo.filter((l) => !l.enviado).length;
+  const pendentes = (t: TipoLembrete) => lembretes.filter((l) => l.tipo === t && !l.enviado).length;
+  const grupos = useMemo(
+    () => GRUPOS.map((g) => ({ ...g, itens: visiveis.filter((l) => g.filtro(l.diasAte)) })).filter((g) => g.itens.length),
+    [visiveis],
+  );
 
   return (
     <div className="vs-painel" role="dialog" aria-label="Lembretes VittaSmart">
       <header className="vs-topo">
-        <strong>Lembretes</strong>
-        <span className="vs-sub">próximos {config.diasAntecedencia} dias</span>
-        {aoFechar && (
-          <button className="vs-icone" onClick={aoFechar} aria-label="Fechar">
-            ×
+        <div>
+          <div className="vs-titulo">Lembretes</div>
+          <div className="vs-subtitulo">Próximos {config.diasAntecedencia} dias</div>
+        </div>
+        <div className="vs-topo-acoes">
+          <button className="vs-icone" onClick={() => void pedir({ tipo: 'abrirOpcoes' })} aria-label="Opções" title="Opções">
+            <IconeEngrenagem />
           </button>
-        )}
+          {aoFechar && (
+            <button className="vs-icone" onClick={aoFechar} aria-label="Fechar" title="Fechar">
+              <IconeFechar />
+            </button>
+          )}
+        </div>
       </header>
 
       <div className="vs-abas" role="tablist">
-        {(['aniversario', 'vacina'] as const).map((t) => (
-          <button key={t} role="tab" aria-selected={aba === t} className={aba === t ? 'ativa' : ''} onClick={() => setAba(t)}>
-            {t === 'aniversario' ? '🎂 Aniversários' : '💉 Vacinas'}
-            {pendentes(t) > 0 && <span className="vs-contador">{pendentes(t)}</span>}
-          </button>
-        ))}
+        <Aba ativa={aba === 'aniversario'} onClick={() => setAba('aniversario')} icone={<IconeBolo />} rotulo="Aniversários" qtd={pendentes('aniversario')} />
+        <Aba ativa={aba === 'vacina'} onClick={() => setAba('vacina')} icone={<IconeSeringa />} rotulo="Vacinas" qtd={pendentes('vacina')} />
       </div>
 
-      {erro && <p className="vs-erro">{erro}</p>}
+      {erro && <p className="vs-aviso vs-aviso-erro">{erro}</p>}
+      {sucesso && <p className="vs-aviso vs-aviso-ok">{sucesso}</p>}
 
-      <ul className="vs-lista">
-        {dados && visiveis.length === 0 && (
-          <li className="vs-vazio">
-            {dados.totais.pacientes === 0
-              ? 'Nenhum paciente na base local. Sincronize com o VetSmart (ou carregue a demonstração nas Opções).'
-              : 'Nada para avisar neste período. 🎉'}
-          </li>
-        )}
-        {visiveis.map((l) => (
-          <ItemLembrete key={l.chave} l={l} config={config} aoMarcar={marcar} />
+      <div className="vs-lista">
+        {dados && visiveis.length === 0 && <Vazio semBase={dados.totais.pacientes === 0} tipo={aba} podeSincronizar={!!aoSincronizar} />}
+        {grupos.map((g) => (
+          <section key={g.titulo}>
+            <h3 className={`vs-grupo${g.titulo === 'Atrasadas' ? ' vs-grupo-alerta' : ''}`}>{g.titulo}</h3>
+            <ul>
+              {g.itens.map((l) => (
+                <ItemLembrete key={l.chave} l={l} config={config} aoMarcar={marcar} />
+              ))}
+            </ul>
+          </section>
         ))}
-      </ul>
+        {enviados > 0 && (
+          <button className="vs-link vs-mostrar" onClick={() => setMostrarEnviados((m) => !m)}>
+            {mostrarEnviados ? 'Ocultar enviados' : `Mostrar ${enviados} já enviado${enviados > 1 ? 's' : ''}`}
+          </button>
+        )}
+      </div>
 
       <footer className="vs-rodape">
-        <label className="vs-check">
-          <input type="checkbox" checked={mostrarEnviados} onChange={(e) => setMostrarEnviados(e.target.checked)} />
-          mostrar enviados ({doTipo.filter((l) => l.enviado).length})
-        </label>
-        <div className="vs-sync">
-          <span className="vs-sub">
-            {dados?.ultimaSincronizacao
-              ? `Base: ${new Date(dados.ultimaSincronizacao).toLocaleString('pt-BR')}${dados.origemDados && dados.origemDados !== 'vetsmart' ? ` (${dados.origemDados})` : ''}`
-              : 'Base nunca sincronizada'}
-          </span>
-          {aoSincronizar ? (
-            <button className="vs-botao" onClick={sincronizar} disabled={progresso !== null}>
-              {progresso ?? 'Sincronizar'}
-            </button>
-          ) : (
-            <span className="vs-sub">Abra o VetSmart para sincronizar.</span>
-          )}
-        </div>
-        <button className="vs-link" onClick={abrirOpcoes}>
-          Opções
-        </button>
+        <span className="vs-meta">{textoBase(dados)}</span>
+        {aoSincronizar ? (
+          <button className="vs-botao vs-botao-sec" onClick={sincronizar} disabled={progresso !== null}>
+            <IconeAtualizar tamanho={15} girando={progresso !== null} />
+            {progresso ?? 'Sincronizar'}
+          </button>
+        ) : (
+          <span className="vs-meta">Para sincronizar, use o botão dentro do VetSmart.</span>
+        )}
       </footer>
     </div>
   );
 }
 
-/** Via background: uma página do VetSmart não pode abrir chrome-extension:// direto (ERR_BLOCKED_BY_CLIENT). */
-function abrirOpcoes() {
-  void pedir({ tipo: 'abrirOpcoes' });
+function textoBase(dados: RespostaLembretes | null): string {
+  if (!dados?.ultimaSincronizacao) return 'Ainda não sincronizado';
+  const quando = new Date(dados.ultimaSincronizacao);
+  const min = Math.round((Date.now() - quando.getTime()) / 60000);
+  const rel = min < 1 ? 'agora' : min < 60 ? `há ${min} min` : quando.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  return `${dados.origemDados === 'demonstração' ? 'Demonstração' : 'Atualizado'} ${rel}`;
+}
+
+function Aba({ ativa, onClick, icone, rotulo, qtd }: { ativa: boolean; onClick: () => void; icone: React.ReactNode; rotulo: string; qtd: number }) {
+  return (
+    <button role="tab" aria-selected={ativa} className={`vs-aba${ativa ? ' ativa' : ''}`} onClick={onClick}>
+      {icone}
+      <span>{rotulo}</span>
+      {qtd > 0 && <span className="vs-contador">{qtd}</span>}
+    </button>
+  );
+}
+
+function Vazio({ semBase, tipo, podeSincronizar }: { semBase: boolean; tipo: TipoLembrete; podeSincronizar: boolean }) {
+  if (semBase) {
+    return (
+      <div className="vs-vazio">
+        <IconeAtualizar tamanho={28} />
+        <strong>Nenhum paciente ainda</strong>
+        <span>
+          {podeSincronizar
+            ? 'Clique em "Sincronizar" abaixo para trazer os pacientes do VetSmart.'
+            : 'Abra o VetSmart e use o botão de lembretes para sincronizar.'}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="vs-vazio">
+      <IconeCheck tamanho={28} />
+      <strong>Tudo em dia!</strong>
+      <span>{tipo === 'aniversario' ? 'Nenhum aniversário para avisar neste período.' : 'Nenhuma vacina para lembrar neste período.'}</span>
+    </div>
+  );
+}
+
+const CORES = ['#0f766e', '#7c3aed', '#c2410c', '#0369a1', '#be185d', '#4d7c0f'];
+function corDo(nome: string): string {
+  let h = 0;
+  for (const c of nome) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return CORES[h % CORES.length]!;
+}
+
+function selo(diasAte: number): string {
+  if (diasAte < 0) return `${-diasAte}d atraso`;
+  if (diasAte === 0) return 'Hoje';
+  if (diasAte === 1) return 'Amanhã';
+  return `em ${diasAte} dias`;
 }
 
 function ItemLembrete({ l, config, aoMarcar }: { l: Lembrete; config: Config; aoMarcar: (l: Lembrete, enviado: boolean) => void }) {
   const numero = normalizarWhatsapp(l.tutor?.telefone);
-  const detalhe = l.tipo === 'aniversario' ? `faz ${textoIdade(l.idade ?? 0)}` : l.vacina;
+  const detalhe = l.tipo === 'aniversario' ? `Faz ${textoIdade(l.idade ?? 0)}` : l.vacina;
+  const urgente = l.diasAte <= 0;
   return (
-    <li className={`vs-item${l.enviado ? ' enviado' : ''}${l.diasAte < 0 ? ' atrasado' : ''}`}>
-      <div className="vs-info">
-        <div>
-          <strong>{l.paciente.nome}</strong>
-          {l.paciente.especie && <span className="vs-sub"> · {l.paciente.especie}</span>}
-          <span className="vs-sub"> · {detalhe}</span>
-        </div>
-        <div className="vs-sub vs-prazo">
-          {formatarData(l.data)} ({descreverPrazo(l.diasAte)}) · Tutor: {l.tutor?.nome ?? '—'}
-        </div>
+    <li className={`vs-item${l.enviado ? ' enviado' : ''}`}>
+      <div className="vs-avatar" style={{ background: corDo(l.paciente.nome) }} aria-hidden="true">
+        {l.paciente.nome.trim().charAt(0).toUpperCase()}
       </div>
-      <div className="vs-acoes">
-        {numero ? (
-          <a className="vs-botao vs-whats" href={linkWhatsapp(numero, mensagemDoLembrete(l, config))} target="_blank" rel="noreferrer">
-            WhatsApp
-          </a>
-        ) : (
-          <span className="vs-sub" title="Tutor sem telefone válido no VetSmart">
-            sem telefone
+      <div className="vs-info">
+        <div className="vs-linha1">
+          <strong className="vs-nome">{l.paciente.nome}</strong>
+          <span className={`vs-selo${l.diasAte < 0 ? ' alerta' : urgente ? ' hoje' : ''}`}>
+            {formatarData(l.data)} · {selo(l.diasAte)}
           </span>
-        )}
-        <button className="vs-link" onClick={() => aoMarcar(l, !l.enviado)}>
-          {l.enviado ? 'desfazer' : 'marcar enviado'}
-        </button>
+        </div>
+        <div className="vs-linha2">
+          {detalhe}
+          {l.paciente.especie ? ` · ${l.paciente.especie}` : ''}
+        </div>
+        <div className="vs-linha2">Tutor: {l.tutor?.nome ?? 'não informado'}</div>
+        <div className="vs-acoes">
+          {numero ? (
+            <a className="vs-botao vs-whats" href={linkWhatsapp(numero, mensagemDoLembrete(l, config))} target="_blank" rel="noreferrer">
+              <IconeWhatsApp /> Enviar lembrete
+            </a>
+          ) : (
+            <span className="vs-sem-tel">Tutor sem celular cadastrado</span>
+          )}
+          <button
+            className={`vs-botao vs-botao-sec${l.enviado ? ' marcado' : ''}`}
+            onClick={() => aoMarcar(l, !l.enviado)}
+            aria-pressed={l.enviado}
+            title={l.enviado ? 'Desmarcar' : 'Marcar como enviado'}
+          >
+            <IconeCheck tamanho={15} /> {l.enviado ? 'Enviado' : 'Já enviei'}
+          </button>
+        </div>
       </div>
     </li>
   );

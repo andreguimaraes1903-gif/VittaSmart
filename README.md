@@ -23,14 +23,15 @@ npm run build
 
 Para testar sem o VetSmart: **Opções → Carregar dados fictícios (demonstração)**.
 
-## Estado atual: falta a sincronização real
+## Sincronização
 
-O VetSmart não tem API pública, então a extensão precisa conhecer os endereços internos que o próprio site usa.
+O VetSmart usa um servidor Parse (`parse.vetsmart.com.br`). A extensão aproveita o login que já está aberto: o script `interceptor` lê as credenciais que a própria página envia e guarda só em memória. Ao clicar em **Sincronizar**, ela baixa as classes `Owner`, `Patient` e `Vaccine` da clínica, em páginas de 1000 registros.
 
-1. Em **Opções**, ligue o **Diagnóstico**.
-2. Recarregue o VetSmart e navegue por: lista de pacientes, ficha de um paciente, vacinas do paciente e cadastro do tutor.
-3. Em **Opções**, clique em **Baixar relatório** e envie o arquivo ao desenvolvedor. O relatório traz só endereços e nomes de campos, sem nenhum valor (nomes, telefones ou datas).
-4. Com o relatório, é implementado `src/vetsmart/adaptador.ts`. Depois disso, o botão **Sincronizar** do painel passa a baixar todos os pacientes.
+- Pacientes falecidos ou excluídos ficam de fora.
+- Para cada vacina de um paciente, vale só a dose aplicada mais recente.
+- Se aparecer "Não encontrei a sessão", navegue um pouco no VetSmart (abra um tutor ou paciente) e tente de novo.
+
+**Diagnóstico:** em Opções, gera um relatório com a estrutura das chamadas do VetSmart (nomes de campos e máscaras como `99/99`, nunca os valores). Serve para ajustar o adaptador se o VetSmart mudar.
 
 ## Desenvolvimento
 

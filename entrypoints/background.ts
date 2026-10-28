@@ -6,6 +6,7 @@ import { dadosDemo } from '@/src/demo';
 import { embrulhar, type Pedido, type RespostaLembretes } from '@/src/mensagens';
 import { contarPendentes, montarLembretes } from '@/src/regras/lembretes';
 import { hojeCivil } from '@/src/regras/datas';
+import { mesclar, type Estrutura } from '@/src/vetsmart/estrutura';
 
 const ALARME = 'resumo-diario';
 
@@ -90,7 +91,17 @@ async function tratar(p: Pedido): Promise<unknown> {
     case 'registrarDiagnostico': {
       const chave = `${p.captura.metodo} ${p.captura.url}`;
       const anterior = await db.diagnostico.get(chave);
-      await db.diagnostico.put({ ...p.captura, chave, vezes: (anterior?.vezes ?? 0) + 1, ultimaVez: new Date().toISOString() });
+      // Mescla com as capturas anteriores: uma resposta vazia não apaga a estrutura já vista.
+      const juntar = (a: Estrutura | undefined, b: Estrutura | undefined) => (b ? mesclar(a, b) : a);
+      await db.diagnostico.put({
+        ...p.captura,
+        chave,
+        corpo: juntar(anterior?.corpo, p.captura.corpo),
+        resposta: juntar(anterior?.resposta, p.captura.resposta),
+        cabecalhos: [...new Set([...(anterior?.cabecalhos ?? []), ...p.captura.cabecalhos])],
+        vezes: (anterior?.vezes ?? 0) + 1,
+        ultimaVez: new Date().toISOString(),
+      });
       return;
     }
     case 'lerDiagnostico':

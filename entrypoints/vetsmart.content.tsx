@@ -6,7 +6,8 @@ import { configItem } from '@/src/config';
 import { pedir } from '@/src/mensagens';
 import { contarPendentes } from '@/src/regras/lembretes';
 import { Painel } from '@/src/ui/Painel';
-import { sincronizarVetSmart } from '@/src/vetsmart/adaptador';
+import { IconeFechar, IconeSino } from '@/src/ui/icones';
+import { escutarSessao, sincronizarVetSmart } from '@/src/vetsmart/adaptador';
 import { ORIGEM_DIAG, type CapturaDiagnostico } from '@/src/vetsmart/diagnostico';
 import '@/src/ui/estilos.css';
 
@@ -14,6 +15,7 @@ export default defineContentScript({
   matches: ['https://prontuario.vetsmart.com.br/*'],
   cssInjectionMode: 'ui',
   async main(ctx) {
+    escutarSessao();
     await ligarDiagnostico();
 
     const ui = await createShadowRootUi(ctx, {
@@ -71,25 +73,23 @@ function BotaoFlutuante() {
   }, []);
 
   const sincronizar = async (progresso: (t: string) => void) => {
-    const dados = await sincronizarVetSmart((etapa, feitos, total) => progresso(`${etapa} ${feitos}${total ? `/${total}` : ''}`));
+    const dados = await sincronizarVetSmart((etapa, feitos) => progresso(`${etapa}: ${feitos}`));
     progresso('Salvando…');
     await pedir({ tipo: 'salvarDados', dados, origem: 'vetsmart' });
   };
 
   return (
     <div className="vs-flutuante">
-      {aberto && (
-        <Painel
-          aoSincronizar={sincronizar}
-          aoFechar={() => {
-            setAberto(false);
-            void atualizarContador();
-          }}
-        />
-      )}
-      <button className="vs-fab" onClick={() => setAberto((a) => !a)} aria-label="Lembretes de aniversários e vacinas" title="Lembretes VittaSmart">
-        🐾
-        {pendentes > 0 && <span className="vs-contador">{pendentes}</span>}
+      {aberto && <Painel aoSincronizar={sincronizar} aoFechar={() => setAberto(false)} aoMudar={() => void atualizarContador()} />}
+      <button
+        className={`vs-fab${aberto ? ' aberto' : ''}`}
+        onClick={() => setAberto((a) => !a)}
+        aria-label={`Lembretes de aniversários e vacinas${pendentes ? ` (${pendentes} pendentes)` : ''}`}
+        aria-expanded={aberto}
+      >
+        {aberto ? <IconeFechar tamanho={20} /> : <IconeSino tamanho={20} />}
+        {!aberto && <span>Lembretes</span>}
+        {!aberto && pendentes > 0 && <span className="vs-contador">{pendentes}</span>}
       </button>
     </div>
   );
