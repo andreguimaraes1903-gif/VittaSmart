@@ -10,7 +10,6 @@
   color: var(--vs-texto);
   background: var(--vs-fundo);
   width: 380px;
-  max-width: calc(100vw - 32px);
   max-height: 560px;
   display: flex;
   flex-direction: column;
@@ -61,7 +60,7 @@
 }
 .vs-fab .vs-contador { position: absolute; top: -4px; right: -4px; margin: 0; background: #b91c1c; }
 .vs-flutuante .vs-painel {
-  position: absolute; right: 0; bottom: 64px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  position: absolute; right: 0; bottom: 64px; max-width: calc(100vw - 40px); border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
   overflow: hidden;
 }
 
