@@ -1,25 +1,33 @@
 import type { DadosSincronizados } from '../tipos';
 import { pedir } from '../mensagens';
+import { lerConfig } from '../config';
 import { hojeCivil } from '../regras/datas';
-import { POR_PAGINA, type OpcoesConsulta } from './consulta';
+import { POR_PAGINA, type OpcoesConsulta, type PedidoConsulta, type RespostaConsulta } from './consulta';
 import { interpretarPaciente, interpretarTutor, interpretarVacinas, type ObjetoParse } from './parse';
-import { ORIGEM_PEDIR_SESSAO, ORIGEM_SESSAO, type SessaoParse } from './sessao';
+import { ORIGEM_CONSULTA, ORIGEM_PEDIR_SESSAO, ORIGEM_RESPOSTA, ORIGEM_SESSAO, type ResumoSessao } from './sessao';
 
 export type Progresso = (etapa: string, feitos: number, total?: number) => void;
 
 const PAUSA_MS = 250;
+const TEMPO_MAXIMO_MS = 90_000;
 
-let sessaoAtual: SessaoParse | null = null;
+let sessaoAtual: ResumoSessao | null = null;
+const pendentes = new Map<string, (r: RespostaConsulta) => void>();
 
-/** Content script: guarda a sessão que o interceptor (world MAIN) vê nas chamadas da página. */
+/**
+ * Content script: guarda o resumo da sessão que o interceptor (world MAIN) vê
+ * nas chamadas da página e recebe as respostas das consultas pedidas a ele.
+ */
 export function escutarSessao(): void {
   window.addEventListener('message', (ev) => {
     if (ev.source !== window) return;
-    const d = ev.data as { origem?: string; sessao?: SessaoParse } | undefined;
+    const d = ev.data as { origem?: string; sessao?: ResumoSessao; id?: string } | undefined;
     if (d?.origem === ORIGEM_SESSAO && d.sessao) {
       // Campos opcionais ausentes numa chamada não apagam o que já foi visto em outra.
       const definidos = Object.fromEntries(Object.entries(d.sessao).filter(([, v]) => v !== undefined));
-      sessaoAtual = { ...sessaoAtual, ...definidos } as SessaoParse;
+      sessaoAtual = { ...sessaoAtual, ...definidos } as ResumoSessao;
+    } else if (d?.origem === ORIGEM_RESPOSTA && d.id) {
+      pendentes.get(d.id)?.(d as RespostaConsulta);
     }
   });
   window.postMessage({ origem: ORIGEM_PEDIR_SESSAO }, location.origin);
@@ -32,25 +40,50 @@ export function estadoSessao(): Record<string, unknown> {
     servidor: sessaoAtual?.servidor,
     temClinica: !!sessaoAtual?.clinicId,
     clinicClasse: sessaoAtual?.clinicClasse,
-    temInstallationId: !!sessaoAtual?.installationId,
+    temInstallationId: sessaoAtual?.temInstallationId,
     clientVersion: sessaoAtual?.clientVersion,
   };
 }
 
-async function obterSessao(): Promise<SessaoParse> {
+async function obterSessao(): Promise<ResumoSessao> {
   if (!sessaoAtual) {
     window.postMessage({ origem: ORIGEM_PEDIR_SESSAO }, location.origin);
     await new Promise((r) => setTimeout(r, 300));
   }
-  if (!sessaoAtual) {
+  if (!sessaoAtual?.clinicId) {
     throw new Error('Não encontrei a sessão do VetSmart. Navegue um pouco (abra a lista de tutores ou um paciente) e tente de novo.');
   }
   return sessaoAtual;
 }
 
-/** A consulta em si roda no background (ver consulta.ts). */
-async function consultar(s: SessaoParse, classe: string, where: Record<string, unknown>, op: OpcoesConsulta): Promise<ObjetoParse[]> {
-  return pedir({ tipo: 'consultarParse', sessao: s, classe, where, op });
+/**
+ * A consulta em si roda no interceptor (world MAIN), com a sessão da página;
+ * aqui só pedimos e esperamos a resposta. Erros técnicos vão para o relatório.
+ */
+function consultar(classe: string, where: Record<string, unknown>, op: OpcoesConsulta): Promise<ObjetoParse[]> {
+  const id = crypto.randomUUID();
+  return new Promise<ObjetoParse[]>((resolver, rejeitar) => {
+    const limite = setTimeout(() => {
+      pendentes.delete(id);
+      rejeitar(new Error('O VetSmart não respondeu a tempo. Recarregue a página (F5) e tente de novo.'));
+    }, TEMPO_MAXIMO_MS);
+    pendentes.set(id, (r) => {
+      clearTimeout(limite);
+      pendentes.delete(id);
+      if (r.ok) {
+        resolver(r.resultados);
+        return;
+      }
+      if (r.tecnica) {
+        void pedir({ tipo: 'registrarErro', erro: { contexto: `Sincronização: ${classe}`, mensagem: r.mensagem, tecnica: r.tecnica, detalhes: r.detalhes } }).catch(
+          () => undefined,
+        );
+      }
+      rejeitar(new Error(r.mensagem));
+    });
+    const pedido: PedidoConsulta = { origem: ORIGEM_CONSULTA, id, classe, where, op };
+    window.postMessage(pedido, location.origin);
+  });
 }
 
 const espera = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -61,7 +94,6 @@ const ehTempoEsgotado = (e: unknown) => e instanceof Error && /HTTP 50[234]|cone
  * tenta de novo com a metade do tamanho (mínimo 50), até 3 vezes.
  */
 async function consultarComRetentativa(
-  s: SessaoParse,
   classe: string,
   where: Record<string, unknown>,
   op: OpcoesConsulta,
@@ -70,7 +102,7 @@ async function consultarComRetentativa(
   let limit = op.limit ?? POR_PAGINA;
   for (let tentativa = 0; ; tentativa++) {
     try {
-      return await consultar(s, classe, where, { ...op, limit });
+      return await consultar(classe, where, { ...op, limit });
     } catch (e) {
       if (tentativa >= 3 || !ehTempoEsgotado(e)) throw e;
       limit = Math.max(50, Math.floor(limit / 2));
@@ -84,57 +116,27 @@ function registrarInfo(contexto: string, mensagem: string, detalhes: Record<stri
   void pedir({ tipo: 'registrarErro', erro: { nivel: 'info', contexto, mensagem, detalhes } }).catch(() => undefined);
 }
 
-/** Filtros candidatos, do mais específico (igual ao VetSmart) ao mais aberto. */
-function variantesDeFiltro(s: SessaoParse, extra: Record<string, unknown>): { nome: string; where: Record<string, unknown> }[] {
-  const v: { nome: string; where: Record<string, unknown> }[] = [];
-  if (s.clinicId && s.clinicClasse) {
-    v.push({ nome: 'clínica (ponteiro)', where: { isDeleted: false, clinic: { __type: 'Pointer', className: s.clinicClasse, objectId: s.clinicId }, ...extra } });
-  }
-  if (s.clinicId) v.push({ nome: 'clínica (clinicId)', where: { isDeleted: false, clinicId: s.clinicId, ...extra } });
-  v.push({ nome: 'sem clínica', where: { isDeleted: false, ...extra } });
-  v.push({ nome: 'sem filtros', where: { ...extra } });
-  return v;
-}
-
-/**
- * Testa as variantes com 1 registro e fica com a primeira que trouxer algo
- * (o resultado de cada teste vai para o relatório).
- */
-async function escolherFiltro(s: SessaoParse, classe: string, extra: Record<string, unknown>, op: OpcoesConsulta): Promise<Record<string, unknown>> {
-  const testes: { variante: string; encontrou: number | string }[] = [];
-  const variantes = variantesDeFiltro(s, extra);
-  for (const v of variantes) {
-    try {
-      const amostra = await consultarComRetentativa(s, classe, v.where, { ...op, keys: 'objectId', limit: 1, skip: 0 }, () => undefined);
-      testes.push({ variante: v.nome, encontrou: amostra.length });
-      if (amostra.length) {
-        registrarInfo(`Sincronização: ${classe}`, `Usando o filtro "${v.nome}".`, { testes });
-        return v.where;
-      }
-    } catch (e) {
-      testes.push({ variante: v.nome, encontrou: `erro: ${e instanceof Error ? e.message : String(e)}` });
-    }
-  }
-  registrarInfo(`Sincronização: ${classe}`, 'Nenhum registro encontrado em nenhum filtro.', { testes, ...estadoSessao() });
-  return variantes[0]!.where;
+/** O mesmo filtro que o VetSmart usa nas listas: ponteiro da clínica e não excluídos. */
+function filtroClinica(s: ResumoSessao): Record<string, unknown> {
+  return { clinic: { __type: 'Pointer', className: s.clinicClasse ?? 'Clinic', objectId: s.clinicId }, isDeleted: false };
 }
 
 /** Percorre a classe inteira em ordem de objectId (paginação por chave, sem limite de skip). */
 async function listarTudo(
-  s: SessaoParse,
+  s: ResumoSessao,
   classe: string,
   rotulo: string,
   progresso: Progresso,
   op: OpcoesConsulta = {},
 ): Promise<ObjetoParse[]> {
-  progresso(`${rotulo}: verificando`, 0);
-  const filtro = await escolherFiltro(s, classe, {}, op);
+  const filtro = filtroClinica(s);
   const todos: ObjetoParse[] = [];
   let ultimo: string | null = null;
   let limit = op.limit ?? POR_PAGINA;
+  progresso(rotulo, 0);
   for (;;) {
     const where: Record<string, unknown> = ultimo ? { ...filtro, objectId: { $gt: ultimo } } : filtro;
-    const pagina = await consultarComRetentativa(s, classe, where, { ...op, limit }, (l) => (limit = l));
+    const pagina = await consultarComRetentativa(classe, where, { ...op, limit }, (l) => (limit = l));
     todos.push(...pagina);
     progresso(rotulo, todos.length);
     if (pagina.length < limit) return todos;
@@ -144,24 +146,25 @@ async function listarTudo(
 }
 
 /**
- * Só as doses com data a partir de ontem (as que podem virar lembrete),
- * em ordem de data como o próprio VetSmart consulta. Muito mais leve que a
- * classe inteira, que estourava o tempo do servidor (HTTP 504).
+ * Doses programadas (`isReminder: true`, como a tela de Vacinas do VetSmart
+ * separa "Programadas" e "Atrasadas"), a partir do limite de atraso das Opções.
+ * As aplicadas (`isReminder: false`) não interessam aos lembretes.
  */
-async function listarVacinasFuturas(s: SessaoParse, progresso: Progresso): Promise<ObjetoParse[]> {
+async function listarVacinasProgramadas(s: ResumoSessao, progresso: Progresso): Promise<ObjetoParse[]> {
+  const { diasAtrasoVacina } = await lerConfig();
   const desde = new Date();
-  desde.setDate(desde.getDate() - 1);
+  desde.setDate(desde.getDate() - diasAtrasoVacina);
   desde.setHours(0, 0, 0, 0);
+  const where = { ...filtroClinica(s), isReminder: true, documentDate: { $gte: { __type: 'Date', iso: desde.toISOString() } } };
   const op: OpcoesConsulta = {
-    keys: 'patient,patientId,vaccine,vaccineType,documentDate,parentVaccine,ignoreReminder,isDeleted',
+    keys: 'patient,patientId,vaccine,vaccineType,documentDate,isReminder,ignoreReminder,isDeleted',
     order: 'documentDate,objectId',
   };
-  progresso('Vacinas: verificando', 0);
-  const where = await escolherFiltro(s, 'Vaccine', { documentDate: { $gte: { __type: 'Date', iso: desde.toISOString() } } }, op);
   const todos: ObjetoParse[] = [];
-  let limit = 200;
+  let limit = 500;
+  progresso('Vacinas', 0);
   for (;;) {
-    const pagina = await consultarComRetentativa(s, 'Vaccine', where, { ...op, limit, skip: todos.length }, (l) => (limit = l));
+    const pagina = await consultarComRetentativa('Vaccine', where, { ...op, limit, skip: todos.length }, (l) => (limit = l));
     todos.push(...pagina);
     progresso('Vacinas', todos.length);
     if (pagina.length < limit) return todos;
@@ -179,11 +182,11 @@ export async function sincronizarVetSmart(progresso: Progresso): Promise<DadosSi
   const brutosPacientes = await listarTudo(s, 'Patient', 'Pacientes', progresso, {
     keys: 'name,specie,birthdate,birthday,owner,ownerId,deceased,isDeleted',
   });
-  const brutosVacinas = await listarVacinasFuturas(s, progresso);
+  const brutosVacinas = await listarVacinasProgramadas(s, progresso);
   const tutores = brutosTutores.flatMap((o) => interpretarTutor(o) ?? []);
   const pacientes = brutosPacientes.flatMap((o) => interpretarPaciente(o) ?? []);
   const vacinas = interpretarVacinas(brutosVacinas, hojeCivil());
-  registrarInfo('Sincronização concluída', `${pacientes.length} pacientes, ${tutores.length} tutores, ${vacinas.length} próximas doses.`, {
+  registrarInfo('Sincronização concluída', `${pacientes.length} pacientes, ${tutores.length} tutores, ${vacinas.length} doses programadas.`, {
     recebidos: { tutores: brutosTutores.length, pacientes: brutosPacientes.length, vacinas: brutosVacinas.length },
     aproveitados: { tutores: tutores.length, pacientes: pacientes.length, vacinas: vacinas.length },
     pacientesComNascimento: pacientes.filter((p) => p.nascimento).length,

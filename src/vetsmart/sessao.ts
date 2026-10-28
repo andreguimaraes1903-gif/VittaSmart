@@ -12,8 +12,30 @@ export interface SessaoParse {
   incluirVacina?: string;
 }
 
+/** O que o content script recebe da sessão: nunca o token nem o appId. */
+export interface ResumoSessao {
+  servidor: string;
+  clinicId?: string;
+  clinicClasse?: string;
+  clientVersion?: string;
+  temInstallationId: boolean;
+}
+
+export function resumirSessao(s: SessaoParse): ResumoSessao {
+  return {
+    servidor: s.servidor,
+    clinicId: s.clinicId,
+    clinicClasse: s.clinicClasse,
+    clientVersion: s.clientVersion,
+    temInstallationId: !!s.installationId,
+  };
+}
+
 export const ORIGEM_SESSAO = 'vittasmart-sessao';
 export const ORIGEM_PEDIR_SESSAO = 'vittasmart-pedir-sessao';
+/** Pedido de consulta do content script ao interceptor (world MAIN) e a resposta. */
+export const ORIGEM_CONSULTA = 'vittasmart-consulta';
+export const ORIGEM_RESPOSTA = 'vittasmart-resposta';
 
 /** Extrai a sessão do corpo de uma chamada do SDK do Parse. */
 export function sessaoDoCorpo(url: string, corpo: unknown): SessaoParse | null {

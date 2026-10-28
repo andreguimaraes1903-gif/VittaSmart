@@ -5,7 +5,8 @@
  * Campos confirmados pelo diagnóstico:
  * - Patient: objectId, name, specie, birthdate {__type:'Date', iso}, birthday, owner/ownerId, deceased, isDeleted
  * - Owner: objectId, name, phone, isDeleted
- * - Vaccine: objectId, patient/patientId, vaccine (nome), vaccineType, documentDate, parentVaccine, ignoreReminder, isDeleted
+ * - Vaccine: objectId, patient/patientId, vaccine (marca), vaccineType (ex.: "V10", "Antirrábica"),
+ *   documentDate, isReminder (true = dose programada, false = aplicada), parentVaccine, ignoreReminder, isDeleted
  */
 import type { DataCivil, Paciente, Tutor, Vacina } from '../tipos';
 import { paraDataCivil } from '../regras/datas';
@@ -53,8 +54,9 @@ export function interpretarTutor(o: ObjetoParse): Tutor | null {
 
 const RE_PROXIMA = /(next|revac|booster|due|proxim|reforc)/i;
 
+/** O tipo ("V10", "Antirrábica") é o que o tutor reconhece; a marca fica de reserva. */
 function nomeVacina(o: Record<string, unknown>): string | null {
-  for (const k of ['vaccine', 'vaccineName', 'name', 'nome', 'vaccineType']) {
+  for (const k of ['vaccineType', 'vaccine', 'vaccineName', 'name', 'nome']) {
     const v = o[k];
     if (texto(v)) return texto(v);
     // Ponteiro incluído com nome dentro.
@@ -78,20 +80,22 @@ export function campoProximaDose(o: Record<string, unknown>): DataCivil | null {
 
 /**
  * Vacinas do VetSmart (classe Vaccine). Cada dose é um registro com
- * `documentDate`; a dose programada aponta para a anterior em `parentVaccine`.
- * Uma dose com data a partir de hoje é uma dose programada: vira lembrete.
+ * `documentDate`; a dose programada (`isReminder: true`) aponta para a
+ * anterior em `parentVaccine` e vira lembrete, mesmo atrasada (a janela de
+ * atraso é das regras). Dose aplicada (`isReminder: false`) não vira lembrete.
+ * Sem `isReminder`, vale a data: só a partir de hoje.
  * `ignoreReminder` = o próprio VetSmart foi instruído a não lembrar.
- * Por paciente + vacina, fica só a próxima dose programada.
+ * Por paciente + vacina, fica só a dose programada mais próxima.
  */
 export function interpretarVacinas(objetos: ObjetoParse[], hoje: DataCivil): Vacina[] {
   const proxima = new Map<string, Vacina>();
   for (const o of objetos) {
-    if (o.isDeleted === true || o.ignoreReminder === true) continue;
+    if (o.isDeleted === true || o.ignoreReminder === true || o.isReminder === false) continue;
     const pacienteId = texto(o.patientId) ?? idPonteiro(o.patient);
     if (!pacienteId) continue;
     const nome = nomeVacina(o) ?? 'Vacina';
     const data = campoProximaDose(o) ?? dataParse(o.documentDate);
-    if (!data || data < hoje) continue;
+    if (!data || (o.isReminder !== true && data < hoje)) continue;
     const chave = `${pacienteId}|${nome.toLocaleLowerCase('pt-BR')}`;
     const atual = proxima.get(chave);
     if (atual && atual.proximaDose <= data) continue;

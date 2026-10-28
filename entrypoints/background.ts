@@ -1,7 +1,6 @@
 import { browser } from 'wxt/browser';
 import { defineBackground } from 'wxt/utils/define-background';
 import { apagarTudo, db, exportarBackup, importarBackup, lerDados, lerMeta, registrarErro, salvarDados } from '@/src/db';
-import { consultarParse, ErroConsulta } from '@/src/vetsmart/consulta';
 import type { RegistroErro } from '@/src/erros';
 import { configItem, lerConfig } from '@/src/config';
 import { dadosDemo } from '@/src/demo';
@@ -118,15 +117,6 @@ async function tratar(p: Pedido): Promise<unknown> {
     case 'notificarAgora':
       await notificar();
       return;
-    case 'consultarParse':
-      try {
-        return await consultarParse(p.sessao, p.classe, p.where, p.op);
-      } catch (e) {
-        if (e instanceof ErroConsulta) {
-          await registrarErroComp({ contexto: `Sincronização: ${p.classe}`, mensagem: e.message, tecnica: e.tecnica, detalhes: e.detalhes });
-        }
-        throw e;
-      }
     case 'registrarErro':
       await registrarErroComp(p.erro);
       return;
@@ -163,8 +153,7 @@ export default defineBackground(() => {
   browser.runtime.onMessage.addListener((msg, _sender, responder) => {
     const pedido = msg as Pedido;
     const execucao = tratar(pedido).catch(async (e: unknown) => {
-      // Erros de consulta já foram registrados com detalhes; os demais entram aqui.
-      if (!(e instanceof ErroConsulta) && pedido.tipo !== 'registrarErro') {
+      if (pedido.tipo !== 'registrarErro') {
         const tecnica = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
         await registrarErroComp({ contexto: `Extensão: ${pedido.tipo}`, mensagem: tecnica, tecnica: e instanceof Error ? e.stack : undefined }).catch(() => undefined);
       }

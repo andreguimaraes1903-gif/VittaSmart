@@ -42,8 +42,8 @@ describe('vacinas', () => {
     objectId: id,
     patient: { __type: 'Pointer', className: 'Patient', objectId: 'p1' },
     patientId: 'p1',
-    vaccine: nome,
-    vaccineType: 'polivalente',
+    vaccine: 'Marca Fictícia',
+    vaccineType: nome,
     documentDate: data(`${dia}T03:00:00Z`),
     ...extra,
   });
@@ -67,7 +67,20 @@ describe('vacinas', () => {
   it('respeita ignoreReminder e isDeleted', () => {
     expect(interpretarVacinas([v('a', 'V10', '2026-11-02', { ignoreReminder: true }), v('b', 'V8', '2026-11-02', { isDeleted: true })], hoje)).toEqual([]);
   });
-  it('usa o tipo quando falta o nome e aceita campo explícito de próxima dose', () => {
+  it('isReminder: programada vale mesmo atrasada, aplicada nunca', () => {
+    const lista = interpretarVacinas(
+      [
+        v('a', 'V10', '2026-10-01', { isReminder: true }), // programada e atrasada
+        v('b', 'V10', '2027-10-01', { isReminder: true }), // programada mais distante
+        v('c', 'Antirrábica', '2026-12-01', { isReminder: false }), // aplicada (data futura por engano)
+      ],
+      hoje,
+    );
+    expect(lista).toEqual([{ id: 'a', pacienteId: 'p1', nome: 'V10', proximaDose: '2026-10-01' }]);
+  });
+  it('usa a marca quando falta o tipo e aceita campo explícito de próxima dose', () => {
+    const [m] = interpretarVacinas([{ objectId: 'g', patientId: 'p8', vaccine: 'Marca Fictícia', documentDate: data('2027-01-01T03:00:00Z') }], hoje);
+    expect(m).toMatchObject({ nome: 'Marca Fictícia' });
     const [x] = interpretarVacinas([{ objectId: 'f', patientId: 'p9', vaccineType: 'V4 felina', nextDate: data('2027-05-05T03:00:00Z') }], hoje);
     expect(x).toMatchObject({ nome: 'V4 felina', pacienteId: 'p9', proximaDose: '2027-05-05' });
     expect(campoProximaDose({ documentDate: data('2026-01-10T03:00:00Z') })).toBeNull();

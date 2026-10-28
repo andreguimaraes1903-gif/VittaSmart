@@ -12,6 +12,20 @@ export interface OpcoesConsulta {
   order?: string;
 }
 
+/** Pedido do content script ao interceptor (world MAIN), que faz a consulta com a sessão da página. */
+export interface PedidoConsulta {
+  origem: string;
+  id: string;
+  classe: string;
+  where: Record<string, unknown>;
+  op: OpcoesConsulta;
+}
+
+export type RespostaConsulta = { origem: string; id: string } & (
+  | { ok: true; resultados: ObjetoParse[] }
+  | { ok: false; mensagem: string; tecnica?: string; detalhes?: Record<string, unknown> }
+);
+
 /** Erro com detalhes técnicos seguros para o relatório. */
 export class ErroConsulta extends Error {
   constructor(
@@ -24,8 +38,9 @@ export class ErroConsulta extends Error {
 }
 
 /**
- * Uma página de uma classe do Parse. Roda no background: com host_permission
- * para parse.vetsmart.com.br, não depende do CORS/CSP da página nem de bloqueadores.
+ * Uma página de uma classe do Parse. Roda no interceptor (world MAIN), como o
+ * próprio SDK do VetSmart: feita pelo background, a mesma consulta voltava
+ * vazia, como se fosse anônima (`{"results":[]}` sem erro).
  */
 export async function consultarParse(
   s: SessaoParse,
