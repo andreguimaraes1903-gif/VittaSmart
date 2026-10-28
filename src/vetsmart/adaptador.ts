@@ -80,12 +80,43 @@ async function consultarComRetentativa(
   }
 }
 
-function filtroClinica(s: SessaoParse): Record<string, unknown> {
-  if (!s.clinicId) return {};
-  // Mesmo filtro que o VetSmart usa (ponteiro, provavelmente indexado); senão, o campo texto.
-  return s.clinicClasse
-    ? { clinic: { __type: 'Pointer', className: s.clinicClasse, objectId: s.clinicId } }
-    : { clinicId: s.clinicId };
+function registrarInfo(contexto: string, mensagem: string, detalhes: Record<string, unknown>) {
+  void pedir({ tipo: 'registrarErro', erro: { nivel: 'info', contexto, mensagem, detalhes } }).catch(() => undefined);
+}
+
+/** Filtros candidatos, do mais específico (igual ao VetSmart) ao mais aberto. */
+function variantesDeFiltro(s: SessaoParse, extra: Record<string, unknown>): { nome: string; where: Record<string, unknown> }[] {
+  const v: { nome: string; where: Record<string, unknown> }[] = [];
+  if (s.clinicId && s.clinicClasse) {
+    v.push({ nome: 'clínica (ponteiro)', where: { isDeleted: false, clinic: { __type: 'Pointer', className: s.clinicClasse, objectId: s.clinicId }, ...extra } });
+  }
+  if (s.clinicId) v.push({ nome: 'clínica (clinicId)', where: { isDeleted: false, clinicId: s.clinicId, ...extra } });
+  v.push({ nome: 'sem clínica', where: { isDeleted: false, ...extra } });
+  v.push({ nome: 'sem filtros', where: { ...extra } });
+  return v;
+}
+
+/**
+ * Testa as variantes com 1 registro e fica com a primeira que trouxer algo
+ * (o resultado de cada teste vai para o relatório).
+ */
+async function escolherFiltro(s: SessaoParse, classe: string, extra: Record<string, unknown>, op: OpcoesConsulta): Promise<Record<string, unknown>> {
+  const testes: { variante: string; encontrou: number | string }[] = [];
+  const variantes = variantesDeFiltro(s, extra);
+  for (const v of variantes) {
+    try {
+      const amostra = await consultarComRetentativa(s, classe, v.where, { ...op, keys: 'objectId', limit: 1, skip: 0 }, () => undefined);
+      testes.push({ variante: v.nome, encontrou: amostra.length });
+      if (amostra.length) {
+        registrarInfo(`Sincronização: ${classe}`, `Usando o filtro "${v.nome}".`, { testes });
+        return v.where;
+      }
+    } catch (e) {
+      testes.push({ variante: v.nome, encontrou: `erro: ${e instanceof Error ? e.message : String(e)}` });
+    }
+  }
+  registrarInfo(`Sincronização: ${classe}`, 'Nenhum registro encontrado em nenhum filtro.', { testes, ...estadoSessao() });
+  return variantes[0]!.where;
 }
 
 /** Percorre a classe inteira em ordem de objectId (paginação por chave, sem limite de skip). */
@@ -96,7 +127,8 @@ async function listarTudo(
   progresso: Progresso,
   op: OpcoesConsulta = {},
 ): Promise<ObjetoParse[]> {
-  const filtro: Record<string, unknown> = { isDeleted: false, ...filtroClinica(s) };
+  progresso(`${rotulo}: verificando`, 0);
+  const filtro = await escolherFiltro(s, classe, {}, op);
   const todos: ObjetoParse[] = [];
   let ultimo: string | null = null;
   let limit = op.limit ?? POR_PAGINA;
@@ -120,11 +152,12 @@ async function listarVacinasFuturas(s: SessaoParse, progresso: Progresso): Promi
   const desde = new Date();
   desde.setDate(desde.getDate() - 1);
   desde.setHours(0, 0, 0, 0);
-  const where = { isDeleted: false, ...filtroClinica(s), documentDate: { $gte: { __type: 'Date', iso: desde.toISOString() } } };
   const op: OpcoesConsulta = {
     keys: 'patient,patientId,vaccine,vaccineType,documentDate,parentVaccine,ignoreReminder,isDeleted',
     order: 'documentDate,objectId',
   };
+  progresso('Vacinas: verificando', 0);
+  const where = await escolherFiltro(s, 'Vaccine', { documentDate: { $gte: { __type: 'Date', iso: desde.toISOString() } } }, op);
   const todos: ObjetoParse[] = [];
   let limit = 200;
   for (;;) {
@@ -142,12 +175,19 @@ async function listarVacinasFuturas(s: SessaoParse, progresso: Progresso): Promi
  */
 export async function sincronizarVetSmart(progresso: Progresso): Promise<DadosSincronizados> {
   const s = await obterSessao();
-  const tutores = (await listarTudo(s, 'Owner', 'Tutores', progresso, { keys: 'name,phone,isDeleted' })).flatMap(
-    (o) => interpretarTutor(o) ?? [],
-  );
-  const pacientes = (
-    await listarTudo(s, 'Patient', 'Pacientes', progresso, { keys: 'name,specie,birthdate,birthday,owner,ownerId,deceased,isDeleted' })
-  ).flatMap((o) => interpretarPaciente(o) ?? []);
-  const vacinas = interpretarVacinas(await listarVacinasFuturas(s, progresso), hojeCivil());
+  const brutosTutores = await listarTudo(s, 'Owner', 'Tutores', progresso, { keys: 'name,phone,isDeleted' });
+  const brutosPacientes = await listarTudo(s, 'Patient', 'Pacientes', progresso, {
+    keys: 'name,specie,birthdate,birthday,owner,ownerId,deceased,isDeleted',
+  });
+  const brutosVacinas = await listarVacinasFuturas(s, progresso);
+  const tutores = brutosTutores.flatMap((o) => interpretarTutor(o) ?? []);
+  const pacientes = brutosPacientes.flatMap((o) => interpretarPaciente(o) ?? []);
+  const vacinas = interpretarVacinas(brutosVacinas, hojeCivil());
+  registrarInfo('Sincronização concluída', `${pacientes.length} pacientes, ${tutores.length} tutores, ${vacinas.length} próximas doses.`, {
+    recebidos: { tutores: brutosTutores.length, pacientes: brutosPacientes.length, vacinas: brutosVacinas.length },
+    aproveitados: { tutores: tutores.length, pacientes: pacientes.length, vacinas: vacinas.length },
+    pacientesComNascimento: pacientes.filter((p) => p.nascimento).length,
+    tutoresComTelefone: tutores.filter((t) => t.telefone).length,
+  });
   return { tutores, pacientes, vacinas };
 }

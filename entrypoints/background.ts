@@ -77,7 +77,7 @@ async function tratar(p: Pedido): Promise<unknown> {
       await atualizarBadge();
       return;
     case 'salvarDados':
-      await salvarDados(p.dados, p.origem);
+      await salvarDados(p.dados, p.origem, p.origem === 'vetsmart' ? 'mesclar' : 'substituir');
       await atualizarBadge();
       return;
     case 'carregarDemo':

@@ -61,7 +61,11 @@ export function Painel({ aoSincronizar, aoFechar, aoMudar }: Props) {
       await aoSincronizar(setProgresso);
       const novo = await pedir({ tipo: 'lembretes' });
       setDados(novo);
-      setSucesso(`Pronto! ${novo.totais.pacientes} pacientes, ${novo.totais.tutores} tutores e ${novo.totais.vacinas} vacinas com próxima dose.`);
+      if (novo.totais.pacientes === 0) {
+        setErro('A sincronização terminou, mas o VetSmart não devolveu nenhum paciente. Exporte o relatório nas Opções e envie para o suporte.');
+      } else {
+        setSucesso(`Pronto! ${novo.totais.pacientes} pacientes, ${novo.totais.tutores} tutores e ${novo.totais.vacinas} próximas doses de vacina.`);
+      }
       aoMudar?.();
     } catch (e) {
       setErro(e instanceof Error ? e.message : String(e));
@@ -108,7 +112,7 @@ export function Painel({ aoSincronizar, aoFechar, aoMudar }: Props) {
         <div className="vs-aviso vs-aviso-erro">
           {erro}
           <button className="vs-link vs-link-erro" onClick={() => void pedir({ tipo: 'abrirOpcoes' })}>
-            Ver relatório de erros
+            Ver relatório
           </button>
         </div>
       )}

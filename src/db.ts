@@ -42,10 +42,20 @@ export async function lerDados(): Promise<DadosSincronizados> {
   return { pacientes, tutores, vacinas };
 }
 
-/** Substitui tudo (a sincronização traz a base completa). Envios são preservados. */
-export async function salvarDados(dados: DadosSincronizados, origem: string): Promise<void> {
+/**
+ * - substituir: troca tudo (demonstração, backup).
+ * - mesclar (sincronização): adiciona/atualiza tutores e pacientes sem apagar os
+ *   já salvos; as vacinas são trocadas, pois só interessam as próximas doses.
+ *   Dados de demonstração anteriores são descartados para não misturar.
+ * Envios ("já enviei") são sempre preservados.
+ */
+export async function salvarDados(dados: DadosSincronizados, origem: string, modo: 'substituir' | 'mesclar' = 'substituir'): Promise<void> {
+  const origemAnterior = await lerMeta('origemDados');
   await db.transaction('rw', [db.pacientes, db.tutores, db.vacinas, db.meta], async () => {
-    await Promise.all([db.pacientes.clear(), db.tutores.clear(), db.vacinas.clear()]);
+    if (modo === 'substituir' || origemAnterior === 'demonstração') {
+      await Promise.all([db.pacientes.clear(), db.tutores.clear()]);
+    }
+    await db.vacinas.clear();
     await db.pacientes.bulkPut(dados.pacientes);
     await db.tutores.bulkPut(dados.tutores);
     await db.vacinas.bulkPut(dados.vacinas);

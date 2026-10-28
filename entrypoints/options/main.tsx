@@ -142,13 +142,13 @@ function Opcoes() {
         </div>
       </section>
 
-      <h2 id="erros">Relatório de erros</h2>
+      <h2 id="erros">Relatório de erros e sincronização</h2>
       <section>
         <p className="sub">
-          Falhas da sincronização e da extensão ficam guardadas aqui (até 200), com detalhes técnicos. Não incluem senha, token de sessão nem
+          Falhas e passos da sincronização (filtros testados, quantidades recebidas) ficam guardados aqui (até 200), com detalhes técnicos. Não incluem senha, token de sessão nem
           dados de pacientes. Baixe e envie para o desenvolvedor quando algo der errado.
         </p>
-        <p className="sub">{erros.length ? `${erros.length} erro(s) registrado(s).` : 'Nenhum erro registrado.'}</p>
+        <p className="sub">{erros.length ? `${erros.filter((e) => e.nivel !== 'info').length} erro(s) e ${erros.filter((e) => e.nivel === 'info').length} registro(s) de sincronização.` : 'Nada registrado.'}</p>
         <button
           onClick={() =>
             baixarJson(`vittasmart-erros-${hoje()}.json`, {
@@ -160,7 +160,7 @@ function Opcoes() {
           }
           disabled={!erros.length}
         >
-          Exportar relatório de erros
+          Exportar relatório
         </button>
         <button className="secundario" onClick={() => void carregarErros()}>
           Atualizar
@@ -180,7 +180,7 @@ function Opcoes() {
           <pre>
             {erros
               .slice(0, 15)
-              .map((e) => `${new Date(e.em).toLocaleString('pt-BR')}  ${e.contexto}\n  ${e.mensagem}${e.tecnica && e.tecnica !== e.mensagem ? `\n  (${e.tecnica.split('\n')[0]})` : ''}`)
+              .map((e) => `${new Date(e.em).toLocaleString('pt-BR')}  ${e.nivel === 'info' ? '[info] ' : '[erro] '}${e.contexto}\n  ${e.mensagem}${e.tecnica && e.tecnica !== e.mensagem ? `\n  (${e.tecnica.split('\n')[0]})` : ''}`)
               .join('\n\n')}
           </pre>
         )}

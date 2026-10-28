@@ -2,6 +2,8 @@
 export interface RegistroErro {
   id?: number;
   em: string;
+  /** 'info' = passo da sincronização registrado para conferência. */
+  nivel?: 'erro' | 'info';
   contexto: string;
   mensagem: string;
   /** Mensagem técnica original (ex.: "Failed to fetch"). */
