@@ -4,7 +4,7 @@ import { apagarTudo, db, exportarBackup, importarBackup, lerDados, lerMeta, regi
 import type { RegistroErro } from '@/src/erros';
 import { configItem, lerConfig } from '@/src/config';
 import { dadosDemo } from '@/src/demo';
-import { embrulhar, type Pedido, type RespostaLembretes } from '@/src/mensagens';
+import { embrulhar, type Pedido, type RespostaLembretes, type ResultadoNotificacao } from '@/src/mensagens';
 import { contarPendentes, montarLembretes } from '@/src/regras/lembretes';
 import { hojeCivil } from '@/src/regras/datas';
 import { mesclar, type Estrutura } from '@/src/vetsmart/estrutura';
@@ -37,21 +37,32 @@ async function atualizarBadge(): Promise<{ aniversarios: number; vacinas: number
   return p;
 }
 
-async function notificar(): Promise<void> {
+/**
+ * Resumo diário. No teste, notifica mesmo sem pendências e com id novo:
+ * o Windows não mostra de novo uma notificação que só foi atualizada.
+ */
+async function notificar(teste = false): Promise<ResultadoNotificacao> {
   const p = await atualizarBadge();
-  if (!p.aniversarios && !p.vacinas) return;
+  const pendentes = p.aniversarios + p.vacinas;
+  const permitida = (await browser.notifications.getPermissionLevel()) === 'granted';
+  if (!permitida) return { enviada: false, pendentes, permitida };
+  if (!pendentes && !teste) return { enviada: false, pendentes, permitida };
   const { diasAntecedencia } = await lerConfig();
   const partes = [
     p.aniversarios && `${p.aniversarios} aniversário${p.aniversarios > 1 ? 's' : ''}`,
     p.vacinas && `${p.vacinas} vacina${p.vacinas > 1 ? 's' : ''}`,
   ].filter(Boolean);
-  await browser.notifications.create(ALARME, {
+  await browser.notifications.clear(ALARME);
+  await browser.notifications.create(teste ? `teste-${Date.now()}` : ALARME, {
     type: 'basic',
     iconUrl: browser.runtime.getURL('/icon/128.png'),
-    title: 'Lembretes do dia',
-    message: `${partes.join(' e ')} para avisar (próximos ${diasAntecedencia} dias e vacinas atrasadas).`,
-    priority: 1,
+    title: teste ? 'Teste de notificação' : 'Lembretes do dia',
+    message: pendentes
+      ? `${partes.join(' e ')} para avisar (próximos ${diasAntecedencia} dias e vacinas atrasadas).`
+      : 'Nenhum lembrete pendente agora. As notificações estão funcionando.',
+    priority: 2,
   });
+  return { enviada: true, pendentes, permitida };
 }
 
 async function agendarAlarme(): Promise<void> {
@@ -115,8 +126,7 @@ async function tratar(p: Pedido): Promise<unknown> {
       await db.diagnostico.clear();
       return;
     case 'notificarAgora':
-      await notificar();
-      return;
+      return notificar(true);
     case 'registrarErro':
       await registrarErroComp(p.erro);
       return;

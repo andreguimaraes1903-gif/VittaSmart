@@ -29,11 +29,19 @@ export interface RespostaLembretes {
   totais: { pacientes: number; tutores: number; vacinas: number };
 }
 
+export interface ResultadoNotificacao {
+  enviada: boolean;
+  pendentes: number;
+  /** Falso quando o Chrome bloqueou as notificações da extensão. */
+  permitida: boolean;
+}
+
 type Respostas = {
   lembretes: RespostaLembretes;
   exportar: Backup;
   lerDiagnostico: RegistroDiagnostico[];
   lerErros: RegistroErro[];
+  notificarAgora: ResultadoNotificacao;
 };
 
 export type RespostaDe<T extends Pedido['tipo']> = T extends keyof Respostas ? Respostas[T] : void;
