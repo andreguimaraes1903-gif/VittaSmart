@@ -63,7 +63,7 @@ function BotaoFlutuante() {
     try {
       const { lembretes } = await pedir({ tipo: 'lembretes' });
       const p = contarPendentes(lembretes);
-      setPendentes(p.aniversarios + p.vacinas);
+      setPendentes(p.total);
     } catch {
       // extensão recarregada: ignora até o próximo F5
     }
@@ -99,7 +99,7 @@ function BotaoFlutuante() {
       <button
         className={`vs-fab${aberto ? ' aberto' : ''}`}
         onClick={() => setAberto((a) => !a)}
-        aria-label={`Lembretes de aniversários e vacinas${pendentes ? ` (${pendentes} pendentes)` : ''}`}
+        aria-label={`Lembretes de aniversários, vacinas e retornos${pendentes ? ` (${pendentes} pendentes)` : ''}`}
         aria-expanded={aberto}
       >
         {aberto ? <IconeFechar tamanho={20} /> : <IconeSino tamanho={20} />}

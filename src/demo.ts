@@ -26,5 +26,11 @@ export function dadosDemo(hoje: DataCivil): DadosSincronizados {
       { id: 'v3', pacienteId: 'p4', nome: 'V4 felina', proximaDose: em(-3) },
       { id: 'v4', pacienteId: 'p3', nome: 'Gripe canina', proximaDose: em(60) },
     ],
+    retornos: [
+      { id: 'r1', pacienteId: 'p3', data: em(0), motivo: 'Pós-cirúrgico' },
+      { id: 'r2', pacienteId: 'p2', data: em(3), motivo: 'Consulta' },
+      { id: 'r3', pacienteId: 'p1', data: em(-2), motivo: 'Consulta' },
+      { id: 'r4', pacienteId: 'p4', data: em(30), motivo: '' },
+    ],
   };
 }

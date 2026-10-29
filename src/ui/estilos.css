@@ -42,10 +42,12 @@
 /* Abas */
 .vs-abas { display: flex; gap: 6px; padding: 10px 12px; background: var(--vs-fundo2); border-bottom: 1px solid var(--vs-borda); }
 .vs-aba {
-  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
-  padding: 8px 10px; border: 0; border-radius: 10px; background: transparent; color: var(--vs-sub);
+  flex: 1 1 auto; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  padding: 8px 4px; font-size: 13px; border: 0; border-radius: 10px; background: transparent; color: var(--vs-sub);
   cursor: pointer; font-weight: 600;
 }
+.vs-aba svg, .vs-aba .vs-contador { flex-shrink: 0; }
+.vs-aba > span:not(.vs-contador) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vs-aba:hover { background: var(--vs-borda); }
 .vs-aba.ativa { background: var(--vs-fundo); color: var(--vs-primaria); box-shadow: 0 1px 3px rgba(16, 32, 30, 0.12); }
 .vs-contador {

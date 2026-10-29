@@ -23,13 +23,23 @@ export interface Vacina {
   proximaDose: DataCivil;
 }
 
+export interface Retorno {
+  id: string;
+  pacienteId: string;
+  /** Data marcada para o retorno. */
+  data: DataCivil;
+  /** Motivo como o VetSmart mostra (ex.: "Consulta", "Pós-cirúrgico"); vazio se não houver. */
+  motivo: string;
+}
+
 export interface DadosSincronizados {
   pacientes: Paciente[];
   tutores: Tutor[];
   vacinas: Vacina[];
+  retornos: Retorno[];
 }
 
-export type TipoLembrete = 'aniversario' | 'vacina';
+export type TipoLembrete = 'aniversario' | 'vacina' | 'retorno';
 
 export interface Lembrete {
   /** Identifica a ocorrência (ex.: aniversário de 2026 do paciente X). */
@@ -44,6 +54,8 @@ export interface Lembrete {
   idade?: number;
   /** Só vacina. */
   vacina?: string;
+  /** Só retorno. */
+  motivo?: string;
   enviado: boolean;
 }
 
@@ -55,5 +67,6 @@ export interface Config {
   modeloVacina: string;
   /** Usado quando a dose programada já passou. */
   modeloVacinaAtrasada: string;
+  modeloRetorno: string;
   diagnostico: boolean;
 }

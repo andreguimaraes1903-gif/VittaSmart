@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { campoProximaDose, dataParse, interpretarPaciente, interpretarTutor, interpretarVacinas, type ObjetoParse } from './parse';
+import { campoProximaDose, dataParse, interpretarPaciente, interpretarRetornos, interpretarTutor, interpretarVacinas, type ObjetoParse } from './parse';
 import { sessaoDoCorpo } from './sessao';
 
 const data = (iso: string) => ({ __type: 'Date', iso });
@@ -89,6 +89,32 @@ describe('vacinas', () => {
     expect(dataParse(data('2020-03-05T00:00:00.000Z'))).toBe('2020-03-05');
     expect(dataParse('2020-03-05')).toBe('2020-03-05');
     expect(dataParse(null)).toBeNull();
+  });
+});
+
+describe('retornos', () => {
+  const hoje = '2026-10-28';
+  const r = (id: string, dia: string, extra: Record<string, unknown> = {}): ObjetoParse => ({
+    objectId: id,
+    patient: { __type: 'Pointer', className: 'Patient', objectId: 'p1' },
+    returnDate: data(`${dia}T03:00:00Z`),
+    documentDate: data('2026-10-01T03:00:00Z'),
+    ...extra,
+  });
+
+  it('usa returnDate e monta o motivo pelos campos marcados', () => {
+    expect(interpretarRetornos([r('a', '2026-11-02', { surgery: true, appointment: true, vaccine: false })], hoje)).toEqual([
+      { id: 'a', pacienteId: 'p1', data: '2026-11-02', motivo: 'Consulta e Pós-cirúrgico' },
+    ]);
+    expect(interpretarRetornos([r('b', '2026-10-28')], hoje)).toEqual([{ id: 'b', pacienteId: 'p1', data: '2026-10-28', motivo: '' }]);
+  });
+
+  it('ignora passados, excluídos e sem paciente ou data', () => {
+    const lista = interpretarRetornos(
+      [r('passou', '2026-10-27'), r('excluido', '2026-11-01', { isDeleted: true }), r('semPet', '2026-11-01', { patient: null }), r('semData', '2026-11-01', { returnDate: null })],
+      hoje,
+    );
+    expect(lista).toEqual([]);
   });
 });
 

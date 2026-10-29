@@ -11,6 +11,7 @@ export const CONFIG_PADRAO: Config = {
     'Olá, {tutor}! 💉 Passando para lembrar que a vacina {vacina} do(a) {pet} está prevista para {data}. Vamos agendar um horário?',
   modeloVacinaAtrasada:
     'Olá, {tutor}! 💉 A vacina {vacina} do(a) {pet} estava prevista para {data} e ainda não consta como aplicada. Vamos agendar um horário?',
+  modeloRetorno: 'Olá, {tutor}! 📅 Passando para lembrar que o retorno do(a) {pet} está marcado para {data}. Podemos confirmar o horário?',
   diagnostico: false,
 };
 

@@ -1,11 +1,13 @@
 import type { Config, DadosSincronizados, DataCivil, Lembrete, Tutor } from '../tipos';
 import { proximosAniversarios } from './aniversarios';
 import { proximasVacinas } from './vacinas';
+import { proximosRetornos } from './retornos';
 import { formatarData } from './datas';
 import { preencherModelo, primeiroNome, textoIdade } from './modelo';
 
 export const chaveAniversario = (pacienteId: string, data: DataCivil) => `aniv:${pacienteId}:${data}`;
 export const chaveVacina = (vacinaId: string, data: DataCivil) => `vac:${vacinaId}:${data}`;
+export const chaveRetorno = (retornoId: string, data: DataCivil) => `ret:${retornoId}:${data}`;
 
 export function montarLembretes(
   dados: DadosSincronizados,
@@ -48,37 +50,66 @@ export function montarLembretes(
     });
   }
 
-  return [...aniversarios, ...vacinas];
+  const retornos: Lembrete[] = [];
+  // Backup antigo não tem retornos.
+  for (const r of proximosRetornos(dados.retornos ?? [], hoje, config.diasAntecedencia)) {
+    const paciente = pacientes.get(r.retorno.pacienteId);
+    if (!paciente) continue;
+    const chave = chaveRetorno(r.retorno.id, r.retorno.data);
+    retornos.push({
+      chave,
+      tipo: 'retorno',
+      data: r.retorno.data,
+      diasAte: r.diasAte,
+      paciente,
+      tutor: tutorDe(paciente.tutorId),
+      motivo: r.retorno.motivo,
+      enviado: enviados.has(chave),
+    });
+  }
+
+  return [...aniversarios, ...vacinas, ...retornos];
 }
 
 /** Vacina atrasada usa o modelo próprio; sem ele, o de vacina. */
 export function mensagemDoLembrete(
   l: Lembrete,
-  config: Pick<Config, 'modeloAniversario' | 'modeloVacina'> & Partial<Pick<Config, 'modeloVacinaAtrasada'>>,
+  config: Pick<Config, 'modeloAniversario' | 'modeloVacina'> & Partial<Pick<Config, 'modeloVacinaAtrasada' | 'modeloRetorno'>>,
 ): string {
   const modelo =
     l.tipo === 'aniversario'
       ? config.modeloAniversario
-      : l.diasAte < 0 && config.modeloVacinaAtrasada
-        ? config.modeloVacinaAtrasada
-        : config.modeloVacina;
+      : l.tipo === 'retorno'
+        ? (config.modeloRetorno ?? '')
+        : l.diasAte < 0 && config.modeloVacinaAtrasada
+          ? config.modeloVacinaAtrasada
+          : config.modeloVacina;
   return preencherModelo(modelo, {
     tutor: l.tutor ? primeiroNome(l.tutor.nome) : '',
     pet: l.paciente.nome,
     data: formatarData(l.data),
     idade: l.idade ? textoIdade(l.idade) : '',
     vacina: l.vacina ?? '',
+    motivo: l.motivo ?? '',
   });
 }
 
 /** Pendentes que entram no badge e na notificação diária (atrasadas contam). */
-export function contarPendentes(lembretes: Lembrete[]): { aniversarios: number; vacinas: number } {
-  let aniversarios = 0;
-  let vacinas = 0;
+export interface Pendentes {
+  aniversarios: number;
+  vacinas: number;
+  retornos: number;
+  total: number;
+}
+
+export function contarPendentes(lembretes: Lembrete[]): Pendentes {
+  const p: Pendentes = { aniversarios: 0, vacinas: 0, retornos: 0, total: 0 };
   for (const l of lembretes) {
     if (l.enviado) continue;
-    if (l.tipo === 'aniversario') aniversarios++;
-    else vacinas++;
+    if (l.tipo === 'aniversario') p.aniversarios++;
+    else if (l.tipo === 'vacina') p.vacinas++;
+    else p.retornos++;
+    p.total++;
   }
-  return { aniversarios, vacinas };
+  return p;
 }

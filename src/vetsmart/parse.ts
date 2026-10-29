@@ -7,9 +7,12 @@
  * - Owner: objectId, name, phone, isDeleted
  * - Vaccine: objectId, patient/patientId, vaccine (marca), vaccineType (ex.: "V10", "Antirrábica"),
  *   documentDate, isReminder (true = dose programada, false = aplicada), parentVaccine, ignoreReminder, isDeleted
+ * - Return: objectId, patient/patientId, returnDate (data marcada), documentDate (quando foi pedido),
+ *   appointment, vaccine, appointmentDrug, examRequest, surgery, prescription, term (motivos, booleanos), notes, isDeleted
  */
-import type { DataCivil, Paciente, Tutor, Vacina } from '../tipos';
+import type { DataCivil, Paciente, Retorno, Tutor, Vacina } from '../tipos';
 import { paraDataCivil } from '../regras/datas';
+import { juntarLista } from '../regras/modelo';
 
 export type ObjetoParse = Record<string, unknown> & { objectId: string };
 
@@ -102,4 +105,32 @@ export function interpretarVacinas(objetos: ObjetoParse[], hoje: DataCivil): Vac
     proxima.set(chave, { id: o.objectId, pacienteId, nome, proximaDose: data });
   }
   return [...proxima.values()];
+}
+
+/** Rótulos que a tela de Retornos do VetSmart usa para cada motivo marcado. */
+const MOTIVOS_RETORNO: [string, string][] = [
+  ['appointment', 'Consulta'],
+  ['vaccine', 'Vacina'],
+  ['appointmentDrug', 'Aplicação de medicamento'],
+  ['examRequest', 'Resultado de exame'],
+  ['surgery', 'Pós-cirúrgico'],
+  ['prescription', 'Entrega/renovação de prescrição'],
+  ['term', 'Entrega/renovação de termo ou atestado'],
+];
+
+/**
+ * Retornos marcados (classe Return), de hoje em diante. As anotações clínicas
+ * (`notes`) não são usadas.
+ */
+export function interpretarRetornos(objetos: ObjetoParse[], hoje: DataCivil): Retorno[] {
+  const lista: Retorno[] = [];
+  for (const o of objetos) {
+    if (o.isDeleted === true) continue;
+    const pacienteId = texto(o.patientId) ?? idPonteiro(o.patient);
+    const data = dataParse(o.returnDate);
+    if (!pacienteId || !data || data < hoje) continue;
+    const motivo = juntarLista(MOTIVOS_RETORNO.filter(([campo]) => o[campo] === true).map(([, rotulo]) => rotulo));
+    lista.push({ id: o.objectId, pacienteId, data, motivo });
+  }
+  return lista;
 }

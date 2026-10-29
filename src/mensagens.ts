@@ -26,7 +26,7 @@ export interface RespostaLembretes {
   lembretes: Lembrete[];
   ultimaSincronizacao: string | null;
   origemDados: string | null;
-  totais: { pacientes: number; tutores: number; vacinas: number };
+  totais: { pacientes: number; tutores: number; vacinas: number; retornos: number };
 }
 
 export interface ResultadoNotificacao {

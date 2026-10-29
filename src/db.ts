@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie';
-import type { DadosSincronizados, Paciente, Tutor, Vacina } from './tipos';
+import type { DadosSincronizados, Paciente, Retorno, Tutor, Vacina } from './tipos';
 import type { RegistroDiagnostico } from './vetsmart/diagnostico';
 import { MAX_ERROS, type RegistroErro } from './erros';
 
@@ -21,6 +21,7 @@ export const db = new Dexie('vittasmart') as Dexie & {
   pacientes: EntityTable<Paciente, 'id'>;
   tutores: EntityTable<Tutor, 'id'>;
   vacinas: EntityTable<Vacina, 'id'>;
+  retornos: EntityTable<Retorno, 'id'>;
   envios: EntityTable<Envio, 'chave'>;
   meta: EntityTable<Meta, 'chave'>;
   diagnostico: EntityTable<RegistroDiagnostico, 'chave'>;
@@ -36,29 +37,37 @@ db.version(1).stores({
   diagnostico: 'chave',
 });
 db.version(2).stores({ erros: '++id, em' });
+db.version(3).stores({ retornos: 'id, pacienteId, data' });
 
 export async function lerDados(): Promise<DadosSincronizados> {
-  const [pacientes, tutores, vacinas] = await Promise.all([db.pacientes.toArray(), db.tutores.toArray(), db.vacinas.toArray()]);
-  return { pacientes, tutores, vacinas };
+  const [pacientes, tutores, vacinas, retornos] = await Promise.all([
+    db.pacientes.toArray(),
+    db.tutores.toArray(),
+    db.vacinas.toArray(),
+    db.retornos.toArray(),
+  ]);
+  return { pacientes, tutores, vacinas, retornos };
 }
 
 /**
  * - substituir: troca tudo (demonstração, backup).
  * - mesclar (sincronização): adiciona/atualiza tutores e pacientes sem apagar os
- *   já salvos; as vacinas são trocadas, pois só interessam as próximas doses.
+ *   já salvos; vacinas e retornos são trocados, pois só interessam os próximos.
  *   Dados de demonstração anteriores são descartados para não misturar.
  * Envios ("já enviei") são sempre preservados.
  */
 export async function salvarDados(dados: DadosSincronizados, origem: string, modo: 'substituir' | 'mesclar' = 'substituir'): Promise<void> {
   const origemAnterior = await lerMeta('origemDados');
-  await db.transaction('rw', [db.pacientes, db.tutores, db.vacinas, db.meta], async () => {
+  await db.transaction('rw', [db.pacientes, db.tutores, db.vacinas, db.retornos, db.meta], async () => {
     if (modo === 'substituir' || origemAnterior === 'demonstração') {
       await Promise.all([db.pacientes.clear(), db.tutores.clear()]);
     }
-    await db.vacinas.clear();
+    await Promise.all([db.vacinas.clear(), db.retornos.clear()]);
     await db.pacientes.bulkPut(dados.pacientes);
     await db.tutores.bulkPut(dados.tutores);
     await db.vacinas.bulkPut(dados.vacinas);
+    // Backup de antes da 0.4.5 não tem retornos.
+    await db.retornos.bulkPut(dados.retornos ?? []);
     await db.meta.bulkPut([
       { chave: 'ultimaSincronizacao', valor: new Date().toISOString() },
       { chave: 'origemDados', valor: origem },

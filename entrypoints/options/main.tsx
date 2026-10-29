@@ -19,6 +19,7 @@ import {
   IconeEnviar,
   IconeFerramenta,
   IconeLixeira,
+  IconeRetorno,
   IconeSeringa,
   IconeSino,
   IconeWhatsApp,
@@ -45,6 +46,7 @@ const CAMPOS = [
   { chave: 'data', rotulo: 'Data', exemplo: formatarData(hojeCivil()) },
   { chave: 'idade', rotulo: 'Idade', exemplo: '5 anos' },
   { chave: 'vacina', rotulo: 'Vacina', exemplo: 'V10' },
+  { chave: 'motivo', rotulo: 'Motivo do retorno', exemplo: 'Pós-cirúrgico' },
 ] as const;
 
 const EXEMPLO = Object.fromEntries(CAMPOS.map((c) => [c.chave, c.exemplo]));
@@ -152,7 +154,7 @@ function Opcoes() {
   const [aviso, setAviso] = useState<Aviso | null>(null);
   const [resultadoTeste, setResultadoTeste] = useState<Aviso | null>(null);
   const [testando, setTestando] = useState(false);
-  const [modelo, setModelo] = useState<'aniversario' | 'vacina' | 'atrasada'>('aniversario');
+  const [modelo, setModelo] = useState<'aniversario' | 'vacina' | 'atrasada' | 'retorno'>('aniversario');
   const [resumo, setResumo] = useState<RespostaLembretes | null>(null);
   const [diag, setDiag] = useState<RegistroDiagnostico[]>([]);
   const [erros, setErros] = useState<RegistroErro[]>([]);
@@ -222,7 +224,7 @@ function Opcoes() {
           </span>
           <div>
             <h1>VittaSmart</h1>
-            <p>Configurações dos lembretes de aniversários e vacinas</p>
+            <p>Configurações dos lembretes de aniversários, vacinas e retornos</p>
           </div>
           <span className="versao">v{versao}</span>
         </div>
@@ -246,7 +248,7 @@ function Opcoes() {
 
         <main>
           <Cartao id="lembretes" icone={<IconeSino />} titulo="Lembretes" descricao="Quando cada lembrete aparece e quando o resumo diário chega.">
-            <Linha titulo="Antecedência" descricao="Mostra aniversários e vacinas que vencem nos próximos dias.">
+            <Linha titulo="Antecedência" descricao="Mostra aniversários, vacinas e retornos marcados para os próximos dias.">
               <Contador valor={config.diasAntecedencia} min={0} max={60} unidade="dias" aoMudar={(v) => void salvar({ diasAntecedencia: v })} />
             </Linha>
             <Linha titulo="Vacinas atrasadas" descricao="Doses programadas que já passaram e ainda não foram aplicadas continuam aparecendo por esse número de dias (0 desliga).">
@@ -286,6 +288,9 @@ function Opcoes() {
               <button role="tab" aria-selected={modelo === 'atrasada'} className={modelo === 'atrasada' ? 'ativa' : ''} onClick={() => setModelo('atrasada')}>
                 <IconeAlerta tamanho={16} /> Vacina atrasada
               </button>
+              <button role="tab" aria-selected={modelo === 'retorno'} className={modelo === 'retorno' ? 'ativa' : ''} onClick={() => setModelo('retorno')}>
+                <IconeRetorno tamanho={16} /> Retorno
+              </button>
             </div>
             {modelo === 'aniversario' && (
               <EditorModelo valor={config.modeloAniversario} padrao={CONFIG_PADRAO.modeloAniversario} aoMudar={(v) => void salvar({ modeloAniversario: v })} />
@@ -299,6 +304,9 @@ function Opcoes() {
                 padrao={CONFIG_PADRAO.modeloVacinaAtrasada}
                 aoMudar={(v) => void salvar({ modeloVacinaAtrasada: v })}
               />
+            )}
+            {modelo === 'retorno' && (
+              <EditorModelo valor={config.modeloRetorno} padrao={CONFIG_PADRAO.modeloRetorno} aoMudar={(v) => void salvar({ modeloRetorno: v })} />
             )}
           </Cartao>
 
@@ -316,6 +324,10 @@ function Opcoes() {
                 <div>
                   <strong>{resumo.totais.vacinas.toLocaleString('pt-BR')}</strong>
                   <span className="sub">doses programadas</span>
+                </div>
+                <div>
+                  <strong>{(resumo.totais.retornos ?? 0).toLocaleString('pt-BR')}</strong>
+                  <span className="sub">retornos marcados</span>
                 </div>
                 <div>
                   <strong className="menor">{resumo.ultimaSincronizacao ? new Date(resumo.ultimaSincronizacao).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</strong>
@@ -355,7 +367,7 @@ function Opcoes() {
             <div className="perigo-zona">
               <div className="linha-texto">
                 <strong>Apagar dados locais</strong>
-                <span className="sub">Remove pacientes, tutores, vacinas e marcações de enviado. As configurações ficam.</span>
+                <span className="sub">Remove pacientes, tutores, vacinas, retornos e marcações de enviado. As configurações ficam.</span>
               </div>
               <button
                 type="button"

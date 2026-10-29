@@ -6,7 +6,7 @@ import { mensagemDoLembrete } from '../regras/lembretes';
 import { textoIdade } from '../regras/modelo';
 import { linkWhatsapp, normalizarWhatsapp } from '../regras/whatsapp';
 import type { Config, Lembrete, TipoLembrete } from '../tipos';
-import { IconeAtualizar, IconeBolo, IconeCheck, IconeEngrenagem, IconeFechar, IconeSeringa, IconeWhatsApp } from './icones';
+import { IconeAtualizar, IconeBolo, IconeCheck, IconeEngrenagem, IconeFechar, IconeRetorno, IconeSeringa, IconeWhatsApp } from './icones';
 
 interface Props {
   /** Presente só dentro do VetSmart (content script), onde a sessão está logada. */
@@ -70,7 +70,9 @@ export function Painel({ aoSincronizar, aoFechar, aoMudar }: Props) {
       if (novo.totais.pacientes === 0) {
         setErro('A sincronização terminou, mas o VetSmart não devolveu nenhum paciente. Exporte o relatório nas Opções e envie para o suporte.');
       } else {
-        setSucesso(`Pronto! ${novo.totais.pacientes} pacientes, ${novo.totais.tutores} tutores e ${novo.totais.vacinas} próximas doses de vacina.`);
+        setSucesso(
+          `Pronto! ${novo.totais.pacientes} pacientes, ${novo.totais.tutores} tutores, ${novo.totais.vacinas} doses de vacina programadas e ${novo.totais.retornos} retornos marcados.`,
+        );
       }
       aoMudar?.();
     } catch (e) {
@@ -112,6 +114,7 @@ export function Painel({ aoSincronizar, aoFechar, aoMudar }: Props) {
       <div className="vs-abas" role="tablist">
         <Aba ativa={aba === 'aniversario'} onClick={() => setAba('aniversario')} icone={<IconeBolo />} rotulo="Aniversários" qtd={pendentes('aniversario')} />
         <Aba ativa={aba === 'vacina'} onClick={() => setAba('vacina')} icone={<IconeSeringa />} rotulo="Vacinas" qtd={pendentes('vacina')} />
+        <Aba ativa={aba === 'retorno'} onClick={() => setAba('retorno')} icone={<IconeRetorno />} rotulo="Retornos" qtd={pendentes('retorno')} />
       </div>
 
       {erro && (
@@ -176,6 +179,12 @@ function Aba({ ativa, onClick, icone, rotulo, qtd }: { ativa: boolean; onClick: 
   );
 }
 
+const VAZIO: Record<TipoLembrete, string> = {
+  aniversario: 'Nenhum aniversário para avisar neste período.',
+  vacina: 'Nenhuma vacina para lembrar neste período.',
+  retorno: 'Nenhum retorno marcado neste período.',
+};
+
 function Vazio({ semBase, tipo, podeSincronizar }: { semBase: boolean; tipo: TipoLembrete; podeSincronizar: boolean }) {
   if (semBase) {
     return (
@@ -194,7 +203,7 @@ function Vazio({ semBase, tipo, podeSincronizar }: { semBase: boolean; tipo: Tip
     <div className="vs-vazio">
       <IconeCheck tamanho={28} />
       <strong>Tudo em dia!</strong>
-      <span>{tipo === 'aniversario' ? 'Nenhum aniversário para avisar neste período.' : 'Nenhuma vacina para lembrar neste período.'}</span>
+      <span>{VAZIO[tipo]}</span>
     </div>
   );
 }
@@ -215,7 +224,7 @@ function selo(diasAte: number): string {
 
 function ItemLembrete({ l, config, aoMarcar }: { l: Lembrete; config: Config; aoMarcar: (l: Lembrete, enviado: boolean) => void }) {
   const numero = normalizarWhatsapp(l.tutor?.telefone);
-  const detalhe = l.tipo === 'aniversario' ? `Faz ${textoIdade(l.idade ?? 0)}` : l.vacina;
+  const detalhe = l.tipo === 'aniversario' ? `Faz ${textoIdade(l.idade ?? 0)}` : l.tipo === 'retorno' ? `Retorno${l.motivo ? `: ${l.motivo}` : ''}` : l.vacina;
   const urgente = l.diasAte <= 0;
   return (
     <li className={`vs-item${l.enviado ? ' enviado' : ''}`}>

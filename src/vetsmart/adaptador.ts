@@ -2,7 +2,7 @@ import type { DadosSincronizados } from '../tipos';
 import { pedir } from '../mensagens';
 import { hojeCivil } from '../regras/datas';
 import { POR_PAGINA, type OpcoesConsulta, type PedidoConsulta, type RespostaConsulta } from './consulta';
-import { interpretarPaciente, interpretarTutor, interpretarVacinas, type ObjetoParse } from './parse';
+import { interpretarPaciente, interpretarRetornos, interpretarTutor, interpretarVacinas, type ObjetoParse } from './parse';
 import { ORIGEM_CONSULTA, ORIGEM_PEDIR_SESSAO, ORIGEM_RESPOSTA, ORIGEM_SESSAO, type ResumoSessao } from './sessao';
 
 export type Progresso = (etapa: string, feitos: number, total?: number) => void;
@@ -146,6 +146,28 @@ async function listarTudo(
   }
 }
 
+/** Percorre uma consulta já filtrada por data, em páginas de até 500 (skip). */
+async function listarPaginado(
+  classe: string,
+  rotulo: string,
+  where: Record<string, unknown>,
+  op: OpcoesConsulta,
+  progresso: Progresso,
+): Promise<ObjetoParse[]> {
+  const todos: ObjetoParse[] = [];
+  let limit = 500;
+  progresso(rotulo, 0);
+  for (;;) {
+    const pagina = await consultarComRetentativa(classe, where, { ...op, limit, skip: todos.length }, (l) => (limit = l));
+    todos.push(...pagina);
+    progresso(rotulo, todos.length);
+    if (pagina.length < limit) return todos;
+    await espera(PAUSA_MS);
+  }
+}
+
+const dataDoParse = (d: Date) => ({ __type: 'Date', iso: d.toISOString() });
+
 /**
  * Doses programadas (`isReminder: true`): as futuras e as atrasadas, como a tela
  * de Vacinas do VetSmart separa "Programadas" e "Atrasadas". Busca até o limite
@@ -153,29 +175,43 @@ async function listarTudo(
  * mudar o limite não exige nova sincronização. Aplicadas (`isReminder: false`)
  * não interessam aos lembretes.
  */
-async function listarVacinasProgramadas(s: ResumoSessao, progresso: Progresso): Promise<ObjetoParse[]> {
+function listarVacinasProgramadas(s: ResumoSessao, progresso: Progresso): Promise<ObjetoParse[]> {
   const desde = new Date();
   desde.setDate(desde.getDate() - ATRASO_MAXIMO_DIAS);
   desde.setHours(0, 0, 0, 0);
-  const where = { ...filtroClinica(s), isReminder: true, documentDate: { $gte: { __type: 'Date', iso: desde.toISOString() } } };
-  const op: OpcoesConsulta = {
-    keys: 'patient,patientId,vaccine,vaccineType,documentDate,isReminder,ignoreReminder,isDeleted',
-    order: 'documentDate,objectId',
-  };
-  const todos: ObjetoParse[] = [];
-  let limit = 500;
-  progresso('Vacinas', 0);
-  for (;;) {
-    const pagina = await consultarComRetentativa('Vaccine', where, { ...op, limit, skip: todos.length }, (l) => (limit = l));
-    todos.push(...pagina);
-    progresso('Vacinas', todos.length);
-    if (pagina.length < limit) return todos;
-    await espera(PAUSA_MS);
-  }
+  const where = { ...filtroClinica(s), isReminder: true, documentDate: { $gte: dataDoParse(desde) } };
+  return listarPaginado(
+    'Vaccine',
+    'Vacinas',
+    where,
+    { keys: 'patient,patientId,vaccine,vaccineType,documentDate,isReminder,ignoreReminder,isDeleted', order: 'documentDate,objectId' },
+    progresso,
+  );
 }
 
 /**
- * Baixa tutores, pacientes e vacinas do VetSmart usando a sessão da página.
+ * Retornos marcados de hoje em diante, a mesma consulta da lista "Próximos
+ * Retornos" do VetSmart. Os motivos vêm em campos booleanos; as anotações
+ * clínicas (`notes`) não são baixadas.
+ */
+function listarRetornos(s: ResumoSessao, progresso: Progresso): Promise<ObjetoParse[]> {
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  const where = { ...filtroClinica(s), returnDate: { $gte: dataDoParse(hoje) } };
+  return listarPaginado(
+    'Return',
+    'Retornos',
+    where,
+    {
+      keys: 'patient,patientId,returnDate,appointment,vaccine,appointmentDrug,examRequest,surgery,prescription,term,isDeleted',
+      order: 'returnDate,objectId',
+    },
+    progresso,
+  );
+}
+
+/**
+ * Baixa tutores, pacientes, vacinas e retornos do VetSmart usando a sessão da página.
  * Roda no content script de prontuario.vetsmart.com.br.
  */
 export async function sincronizarVetSmart(progresso: Progresso): Promise<DadosSincronizados> {
@@ -185,14 +221,20 @@ export async function sincronizarVetSmart(progresso: Progresso): Promise<DadosSi
     keys: 'name,specie,birthdate,birthday,owner,ownerId,deceased,isDeleted',
   });
   const brutosVacinas = await listarVacinasProgramadas(s, progresso);
+  const brutosRetornos = await listarRetornos(s, progresso);
   const tutores = brutosTutores.flatMap((o) => interpretarTutor(o) ?? []);
   const pacientes = brutosPacientes.flatMap((o) => interpretarPaciente(o) ?? []);
   const vacinas = interpretarVacinas(brutosVacinas, hojeCivil());
-  registrarInfo('Sincronização concluída', `${pacientes.length} pacientes, ${tutores.length} tutores, ${vacinas.length} doses programadas.`, {
-    recebidos: { tutores: brutosTutores.length, pacientes: brutosPacientes.length, vacinas: brutosVacinas.length },
-    aproveitados: { tutores: tutores.length, pacientes: pacientes.length, vacinas: vacinas.length },
+  const retornos = interpretarRetornos(brutosRetornos, hojeCivil());
+  registrarInfo(
+    'Sincronização concluída',
+    `${pacientes.length} pacientes, ${tutores.length} tutores, ${vacinas.length} doses programadas, ${retornos.length} retornos.`,
+    {
+    recebidos: { tutores: brutosTutores.length, pacientes: brutosPacientes.length, vacinas: brutosVacinas.length, retornos: brutosRetornos.length },
+    aproveitados: { tutores: tutores.length, pacientes: pacientes.length, vacinas: vacinas.length, retornos: retornos.length },
     pacientesComNascimento: pacientes.filter((p) => p.nascimento).length,
     tutoresComTelefone: tutores.filter((t) => t.telefone).length,
-  });
-  return { tutores, pacientes, vacinas };
+    },
+  );
+  return { tutores, pacientes, vacinas, retornos };
 }

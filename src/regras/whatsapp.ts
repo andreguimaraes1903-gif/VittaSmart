@@ -8,6 +8,10 @@ export function normalizarWhatsapp(telefone: string | null | undefined): string 
   return null;
 }
 
+/**
+ * Usa api.whatsapp.com direto: o redirecionamento do wa.me troca emojis
+ * (caracteres fora do BMP) por "�".
+ */
 export function linkWhatsapp(numero: string, mensagem: string): string {
-  return `https://wa.me/${numero}?text=${encodeURIComponent(mensagem)}`;
+  return `https://api.whatsapp.com/send/?phone=${numero}&text=${encodeURIComponent(mensagem)}`;
 }

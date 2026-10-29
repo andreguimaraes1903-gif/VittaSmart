@@ -26,6 +26,14 @@ export const IconeBolo = (p: P) => (
   </Svg>
 );
 
+export const IconeRetorno = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="4" width="18" height="18" rx="2" />
+    <path d="M16 2v4M8 2v4M3 10h18" />
+    <path d="m9 16 2 2 4-4" />
+  </Svg>
+);
+
 export const IconeSeringa = (p: P) => (
   <Svg {...p}>
     <path d="m18 2 4 4" />

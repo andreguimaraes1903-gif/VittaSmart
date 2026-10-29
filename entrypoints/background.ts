@@ -5,8 +5,9 @@ import type { RegistroErro } from '@/src/erros';
 import { configItem, lerConfig } from '@/src/config';
 import { dadosDemo } from '@/src/demo';
 import { embrulhar, type Pedido, type RespostaLembretes, type ResultadoNotificacao } from '@/src/mensagens';
-import { contarPendentes, montarLembretes } from '@/src/regras/lembretes';
+import { contarPendentes, montarLembretes, type Pendentes } from '@/src/regras/lembretes';
 import { hojeCivil } from '@/src/regras/datas';
+import { juntarLista } from '@/src/regras/modelo';
 import { mesclar, type Estrutura } from '@/src/vetsmart/estrutura';
 
 const ALARME = 'resumo-diario';
@@ -24,15 +25,14 @@ async function calcularLembretes(): Promise<RespostaLembretes> {
     lembretes,
     ultimaSincronizacao,
     origemDados,
-    totais: { pacientes: dados.pacientes.length, tutores: dados.tutores.length, vacinas: dados.vacinas.length },
+    totais: { pacientes: dados.pacientes.length, tutores: dados.tutores.length, vacinas: dados.vacinas.length, retornos: dados.retornos.length },
   };
 }
 
-async function atualizarBadge(): Promise<{ aniversarios: number; vacinas: number }> {
+async function atualizarBadge(): Promise<Pendentes> {
   const { lembretes } = await calcularLembretes();
   const p = contarPendentes(lembretes);
-  const total = p.aniversarios + p.vacinas;
-  await browser.action.setBadgeText({ text: total ? String(total) : '' });
+  await browser.action.setBadgeText({ text: p.total ? String(p.total) : '' });
   await browser.action.setBadgeBackgroundColor({ color: '#0f766e' });
   return p;
 }
@@ -43,7 +43,7 @@ async function atualizarBadge(): Promise<{ aniversarios: number; vacinas: number
  */
 async function notificar(teste = false): Promise<ResultadoNotificacao> {
   const p = await atualizarBadge();
-  const pendentes = p.aniversarios + p.vacinas;
+  const pendentes = p.total;
   const permitida = (await browser.notifications.getPermissionLevel()) === 'granted';
   if (!permitida) return { enviada: false, pendentes, permitida };
   if (!pendentes && !teste) return { enviada: false, pendentes, permitida };
@@ -51,14 +51,15 @@ async function notificar(teste = false): Promise<ResultadoNotificacao> {
   const partes = [
     p.aniversarios && `${p.aniversarios} aniversário${p.aniversarios > 1 ? 's' : ''}`,
     p.vacinas && `${p.vacinas} vacina${p.vacinas > 1 ? 's' : ''}`,
-  ].filter(Boolean);
+    p.retornos && `${p.retornos} retorno${p.retornos > 1 ? 's' : ''}`,
+  ].filter(Boolean) as string[];
   await browser.notifications.clear(ALARME);
   await browser.notifications.create(teste ? `teste-${Date.now()}` : ALARME, {
     type: 'basic',
     iconUrl: browser.runtime.getURL('/icon/128.png'),
     title: teste ? 'Teste de notificação' : 'Lembretes do dia',
     message: pendentes
-      ? `${partes.join(' e ')} para avisar (próximos ${diasAntecedencia} dias e vacinas atrasadas).`
+      ? `${juntarLista(partes)} para avisar (próximos ${diasAntecedencia} dias e vacinas atrasadas).`
       : 'Nenhum lembrete pendente agora. As notificações estão funcionando.',
     priority: 2,
   });

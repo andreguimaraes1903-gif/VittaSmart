@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { proximaOcorrencia, proximosAniversarios } from './aniversarios';
 import { descreverPrazo, diasEntre, paraDataCivil } from './datas';
 import { chaveAniversario, contarPendentes, mensagemDoLembrete, montarLembretes } from './lembretes';
-import { preencherModelo, primeiroNome, textoIdade } from './modelo';
+import { juntarLista, preencherModelo, primeiroNome, textoIdade } from './modelo';
 import { proximasVacinas } from './vacinas';
+import { proximosRetornos } from './retornos';
 import { linkWhatsapp, normalizarWhatsapp } from './whatsapp';
 import { CONFIG_PADRAO } from '../config';
 import { dadosDemo } from '../demo';
@@ -68,6 +69,17 @@ describe('vacinas', () => {
   });
 });
 
+describe('retornos', () => {
+  it('só os marcados de hoje até a antecedência', () => {
+    const r = (id: string, data: string) => ({ id, pacienteId: 'p', data, motivo: '' });
+    const lista = proximosRetornos([r('longe', '2026-12-01'), r('amanha', '2026-10-29'), r('passou', '2026-10-27'), r('hoje', '2026-10-28')], '2026-10-28', 7);
+    expect(lista.map((x) => [x.retorno.id, x.diasAte])).toEqual([
+      ['hoje', 0],
+      ['amanha', 1],
+    ]);
+  });
+});
+
 describe('whatsapp', () => {
   it('normaliza telefones brasileiros', () => {
     expect(normalizarWhatsapp('(11) 91234-5678')).toBe('5511912345678');
@@ -77,7 +89,10 @@ describe('whatsapp', () => {
     expect(normalizarWhatsapp(null)).toBeNull();
   });
   it('monta o link com a mensagem codificada', () => {
-    expect(linkWhatsapp('5511912345678', 'Olá, Ana & cia!')).toBe('https://wa.me/5511912345678?text=Ol%C3%A1%2C%20Ana%20%26%20cia!');
+    expect(linkWhatsapp('5511912345678', 'Olá, Ana & cia!')).toBe('https://api.whatsapp.com/send/?phone=5511912345678&text=Ol%C3%A1%2C%20Ana%20%26%20cia!');
+  });
+  it('mantém emojis (fora do BMP) como UTF-8', () => {
+    expect(linkWhatsapp('5511912345678', '💉🎂🐾📅')).toBe('https://api.whatsapp.com/send/?phone=5511912345678&text=%F0%9F%92%89%F0%9F%8E%82%F0%9F%90%BE%F0%9F%93%85');
   });
 });
 
@@ -87,6 +102,9 @@ describe('modelo', () => {
     expect(textoIdade(1)).toBe('1 ano');
     expect(textoIdade(4)).toBe('4 anos');
     expect(primeiroNome('  Maria  Souza ')).toBe('Maria');
+    expect(juntarLista(['a', 'b', 'c'])).toBe('a, b e c');
+    expect(juntarLista(['a'])).toBe('a');
+    expect(juntarLista([])).toBe('');
   });
 });
 
@@ -99,6 +117,7 @@ describe('montarLembretes', () => {
     const nomes = (tipo: string) => lembretes.filter((l) => l.tipo === tipo).map((l) => l.paciente.nome);
     expect(nomes('aniversario')).toEqual(['Thor', 'Mel', 'Paçoca']);
     expect(nomes('vacina')).toEqual(['Luna', 'Thor', 'Mel']);
+    expect(nomes('retorno')).toEqual(['Paçoca', 'Mel']);
     expect(lembretes[0]?.tutor?.nome).toBe('Ana Exemplo');
   });
 
@@ -106,7 +125,7 @@ describe('montarLembretes', () => {
     const thor = dados.pacientes.find((p) => p.nome === 'Thor')!;
     const lembretes = montarLembretes(dados, new Set([chaveAniversario(thor.id, hoje)]), hoje, CONFIG_PADRAO);
     expect(lembretes.find((l) => l.tipo === 'aniversario' && l.paciente.id === thor.id)?.enviado).toBe(true);
-    expect(contarPendentes(lembretes)).toEqual({ aniversarios: 2, vacinas: 3 });
+    expect(contarPendentes(lembretes)).toEqual({ aniversarios: 2, vacinas: 3, retornos: 2, total: 7 });
   });
 
   it('gera a mensagem com primeiro nome, data e idade', () => {
@@ -122,6 +141,17 @@ describe('montarLembretes', () => {
     expect(mensagemDoLembrete(atrasada, modelos)).toBe(`atrasada ${atrasada.vacina}`);
     expect(mensagemDoLembrete(emDia, modelos)).toBe(`prevista ${emDia.vacina}`);
     expect(mensagemDoLembrete(atrasada, { ...modelos, modeloVacinaAtrasada: '' })).toBe(`prevista ${atrasada.vacina}`);
+  });
+
+  it('retorno usa o próprio modelo e o motivo', () => {
+    const [r] = montarLembretes(dados, new Set(), hoje, CONFIG_PADRAO).filter((l) => l.tipo === 'retorno');
+    const modelos = { modeloAniversario: '', modeloVacina: 'vacina', modeloRetorno: '{pet}|{data}|{motivo}' };
+    expect(mensagemDoLembrete(r!, modelos)).toBe('Paçoca|28/10|Pós-cirúrgico');
+  });
+
+  it('backup sem retornos não quebra', () => {
+    const { retornos: _, ...antigo } = dados;
+    expect(montarLembretes(antigo as typeof dados, new Set(), hoje, CONFIG_PADRAO).some((l) => l.tipo === 'retorno')).toBe(false);
   });
 
   it('vacina atrasada some quando passa do limite de atraso', () => {
